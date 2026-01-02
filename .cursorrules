@@ -23,8 +23,19 @@
 This project uses Ruff for linting and formatting. **ALWAYS** ensure code passes Ruff checks:
 
 ### Line Length
-- **Maximum line length: 88 characters** (configured in pyproject.toml)
-- If a line exceeds 88 characters, break it into multiple lines
+- **Maximum line length: 79 characters** (strict limit for Ruff E501)
+- If a line exceeds 79 characters, break it into multiple lines
+- For complex calculations in f-strings, extract variables first:
+  ```python
+  # ❌ Bad (line too long)
+  print(f"Scale Ratio: {sample_df[predicted_col].mean() / (sample_df[actual_col].mean() + 1e-10):.4f}")
+  
+  # ✅ Good (extract variables)
+  pred_mean = sample_df[predicted_col].mean()
+  actual_mean = sample_df[actual_col].mean()
+  scale_ratio = pred_mean / (actual_mean + 1e-10)
+  print(f"Scale Ratio: {scale_ratio:.4f}")
+  ```
 - For imports, use multi-line format when needed:
   ```python
   from utils import (

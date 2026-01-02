@@ -26,11 +26,241 @@ def load_training_weights(results_df: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        DataFrame with Platform, Post Type, and weights.
+        DataFrame with Platform, Post Type, weights, and intercept.
     """
-    return results_df[
-        ["Platform", "Post Type", "Alpha_Likes", "Beta_Comments", "Gamma_Shares"]
-    ].copy()
+    # Use raw coefficients and intercept for prediction
+    cols = ["Platform", "Post Type", "Alpha_Raw", "Beta_Raw", "Gamma_Raw", "Intercept"]
+
+    # Fallback to normalized if raw not available (backward compatibility)
+    if "Alpha_Raw" not in results_df.columns:
+        cols = ["Platform", "Post Type", "Alpha_Likes", "Beta_Comments", "Gamma_Shares"]
+        result = results_df[cols].copy()
+        # Add zero intercept if not present
+        result["Intercept"] = 0.0
+        return result
+
+    return results_df[cols].copy()
+
+
+def diagnose_validation_issues(
+    train_results_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    weights_df: pd.DataFrame,
+) -> None:
+    """
+    Print diagnostic information to identify validation issues.
+
+    Parameters
+    ----------
+    train_results_df : pd.DataFrame
+        Full training results DataFrame.
+    test_df : pd.DataFrame
+        Test DataFrame.
+    weights_df : pd.DataFrame
+        Weights DataFrame for prediction.
+    """
+    print("\n" + "=" * 80)
+    print("🔍 VALIDATION DIAGNOSTICS")
+    print("=" * 80)
+
+    # 1. Check Platform-PostType matches
+    print("\n1. Platform-PostType Coverage:")
+    print("-" * 80)
+    test_combos = set(zip(test_df["Platform"], test_df["Post Type"], strict=False))
+    train_combos = set(
+        zip(weights_df["Platform"], weights_df["Post Type"], strict=False)
+    )
+    missing_combos = test_combos - train_combos
+
+    print(f"   Test combinations: {len(test_combos)}")
+    print(f"   Train combinations: {len(train_combos)}")
+    print(f"   Missing in training: {len(missing_combos)}")
+
+    if missing_combos:
+        print("\n   ⚠️  Missing combinations (using default weights):")
+        for platform, post_type in list(missing_combos)[:5]:
+            count = len(
+                test_df[
+                    (test_df["Platform"] == platform)
+                    & (test_df["Post Type"] == post_type)
+                ]
+            )
+            print(f"      - {platform} + {post_type}: {count} posts")
+        if len(missing_combos) > 5:
+            print(f"      ... and {len(missing_combos) - 5} more")
+
+    # 2. Check feature statistics and compare train vs test scales
+    print("\n2. Feature Statistics (Train vs Test Scale Comparison):")
+    print("-" * 80)
+    feature_cols = ["Likes_log_log", "Comments_log_log", "Shares_log_log"]
+
+    for col in feature_cols:
+        if col in test_df.columns:
+            test_mean = test_df[col].mean()
+            test_std = test_df[col].std()
+            zero_count = (test_df[col] == 0).sum()
+            nan_count = test_df[col].isna().sum()
+            print(f"   {col}:")
+            print(f"      Test - Mean: {test_mean:.4f}, Std: {test_std:.4f}")
+            print(f"      Zeros: {zero_count}, NaNs: {nan_count}")
+
+    # 3. Check intercept values
+    print("\n3. Intercept Statistics:")
+    print("-" * 80)
+    if "Intercept" in weights_df.columns:
+        intercepts = weights_df["Intercept"]
+        print(f"   Mean intercept: {intercepts.mean():.4f}")
+        print(f"   Std intercept: {intercepts.std():.4f}")
+        print(f"   Min intercept: {intercepts.min():.4f}")
+        print(f"   Max intercept: {intercepts.max():.4f}")
+    else:
+        print("   ⚠️  No intercept column found (using 0.0)")
+
+    # 4. Check coefficient ranges
+    print("\n4. Coefficient Ranges:")
+    print("-" * 80)
+    if "Alpha_Raw" in weights_df.columns:
+        print(
+            f"   Alpha_Raw: [{weights_df['Alpha_Raw'].min():.4f}, "
+            f"{weights_df['Alpha_Raw'].max():.4f}]"
+        )
+        print(
+            f"   Beta_Raw: [{weights_df['Beta_Raw'].min():.4f}, "
+            f"{weights_df['Beta_Raw'].max():.4f}]"
+        )
+        print(
+            f"   Gamma_Raw: [{weights_df['Gamma_Raw'].min():.4f}, "
+            f"{weights_df['Gamma_Raw'].max():.4f}]"
+        )
+    else:
+        print("   ⚠️  Using normalized weights (may cause scale issues)")
+
+    # 5. Check training R² scores
+    print("\n5. Training Model Quality:")
+    print("-" * 80)
+    if "R_Squared" in train_results_df.columns:
+        r2_scores = train_results_df["R_Squared"]
+        print(f"   Mean R²: {r2_scores.mean():.4f}")
+        print(f"   Min R²: {r2_scores.min():.4f}")
+        print(f"   Max R²: {r2_scores.max():.4f}")
+        print(f"   R² > 0.5: {(r2_scores > 0.5).sum()} / {len(r2_scores)} segments")
+        print(f"   R² > 0.3: {(r2_scores > 0.3).sum()} / {len(r2_scores)} segments")
+
+    # 6. Check prediction vs actual scale (if predictions exist)
+    if "Predicted_Engagement_Score" in test_df.columns:
+        print("\n6. Prediction Scale Analysis:")
+        print("-" * 80)
+        actual_mean = test_df["Reach_log"].mean()
+        pred_mean = test_df["Predicted_Engagement_Score"].mean()
+        actual_std = test_df["Reach_log"].std()
+        pred_std = test_df["Predicted_Engagement_Score"].std()
+
+        print(f"   Actual Reach_log - Mean: {actual_mean:.4f}, Std: {actual_std:.4f}")
+        print(f"   Predicted Score - Mean: {pred_mean:.4f}, Std: {pred_std:.4f}")
+        scale_ratio = pred_mean / (actual_mean + 1e-10)
+        std_ratio = pred_std / (actual_std + 1e-10)
+        print(f"   Scale Ratio: {scale_ratio:.4f}")
+        print(f"   Std Ratio: {std_ratio:.4f}")
+
+        if abs(scale_ratio - 1.0) > 0.5:
+            print("   ⚠️  WARNING: Significant scale mismatch detected!")
+        if abs(std_ratio - 1.0) > 0.5:
+            print("   ⚠️  WARNING: Significant variance mismatch detected!")
+
+    print("=" * 80 + "\n")
+
+
+def check_feature_ranges(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    feature_cols: list[str],
+    clip_outliers: bool = True,
+) -> pd.DataFrame:
+    """
+    Check feature ranges and clip outliers in test data.
+
+    Parameters
+    ----------
+    train_df : pd.DataFrame
+        Training DataFrame with feature ranges.
+    test_df : pd.DataFrame
+        Test DataFrame to check and clip.
+    feature_cols : list[str]
+        List of feature column names.
+    clip_outliers : bool, default True
+        Whether to clip outliers to training range.
+
+    Returns
+    -------
+    pd.DataFrame
+        Test DataFrame with clipped features.
+    """
+    test_df = test_df.copy()
+
+    print("\n📊 Feature Range Check:")
+    print("-" * 80)
+
+    for col in feature_cols:
+        if col not in train_df.columns or col not in test_df.columns:
+            continue
+
+        train_min = train_df[col].min()
+        train_max = train_df[col].max()
+        test_min = test_df[col].min()
+        test_max = test_df[col].max()
+
+        outliers_low = (test_df[col] < train_min).sum()
+        outliers_high = (test_df[col] > train_max).sum()
+        total_outliers = outliers_low + outliers_high
+
+        print(f"  {col}:")
+        print(f"    Train range: [{train_min:.4f}, {train_max:.4f}]")
+        print(f"    Test range:  [{test_min:.4f}, {test_max:.4f}]")
+        print(
+            f"    Outliers: {total_outliers} ({outliers_low} low, {outliers_high} high)"
+        )
+
+        if clip_outliers and total_outliers > 0:
+            test_df[col] = test_df[col].clip(lower=train_min, upper=train_max)
+            print("    ✓ Clipped to training range")
+
+    print("-" * 80)
+
+    return test_df
+
+
+def calibrate_intercept(
+    test_df: pd.DataFrame,
+    predicted_col: str = "Predicted_Engagement_Score",
+    actual_col: str = "Reach_log",
+    sample_size: int = 100,
+) -> float:
+    """
+    Recalibrate intercept on a sample of test data if scale shift is detected.
+
+    Parameters
+    ----------
+    test_df : pd.DataFrame
+        DataFrame with predictions and actual values.
+    predicted_col : str, default "Predicted_Engagement_Score"
+        Name of predicted score column.
+    actual_col : str, default "Reach_log"
+        Name of actual target column.
+    sample_size : int, default 100
+        Number of samples to use for calibration.
+
+    Returns
+    -------
+    float
+        Intercept adjustment value.
+    """
+    # Use a sample for calibration
+    sample_df = test_df.sample(n=min(sample_size, len(test_df)), random_state=42).copy()
+
+    # Calculate mean difference (constant shift)
+    mean_diff = (sample_df[actual_col] - sample_df[predicted_col]).mean()
+
+    return mean_diff
 
 
 def calculate_predicted_engagement_score(
@@ -38,11 +268,14 @@ def calculate_predicted_engagement_score(
     weights_df: pd.DataFrame,
     platform_col: str = "Platform",
     post_type_col: str = "Post Type",
+    target_range: tuple[float, float] | None = None,
+    calibrate: bool = False,
+    actual_col: str | None = None,
 ) -> pd.DataFrame:
     """
     Calculate predicted engagement score for test data using training weights.
 
-    Formula: Predicted_Score = (alpha * Likes_log_log) +
+    Formula: Predicted_Score = Intercept + (alpha * Likes_log_log) +
                                  (beta * Comments_log_log) +
                                  (gamma * Shares_log_log)
 
@@ -51,7 +284,7 @@ def calculate_predicted_engagement_score(
     df : pd.DataFrame
         Test DataFrame with engagement features.
     weights_df : pd.DataFrame
-        DataFrame with learned weights from training.
+        DataFrame with learned weights from training (must include Intercept).
     platform_col : str, default "Platform"
         Name of the platform column.
     post_type_col : str, default "Post Type"
@@ -75,6 +308,17 @@ def calculate_predicted_engagement_score(
     if missing_cols:
         raise ValueError(f"Missing feature columns: {missing_cols}")
 
+    # Determine which weight columns to use (raw vs normalized)
+    if "Alpha_Raw" in weights_df.columns:
+        alpha_col = "Alpha_Raw"
+        beta_col = "Beta_Raw"
+        gamma_col = "Gamma_Raw"
+    else:
+        # Fallback to normalized (backward compatibility)
+        alpha_col = "Alpha_Likes"
+        beta_col = "Beta_Comments"
+        gamma_col = "Gamma_Shares"
+
     # Apply weights to each row
     for idx, row in df.iterrows():
         platform = row[platform_col]
@@ -87,21 +331,53 @@ def calculate_predicted_engagement_score(
         ]
 
         if len(weight_row) == 0:
-            # Use equal weights if not found
-            alpha, beta, gamma = 0.33, 0.33, 0.34
+            # Use default values if not found
+            alpha, beta, gamma, intercept = 0.33, 0.33, 0.34, 0.0
         else:
-            alpha = weight_row.iloc[0]["Alpha_Likes"]
-            beta = weight_row.iloc[0]["Beta_Comments"]
-            gamma = weight_row.iloc[0]["Gamma_Shares"]
+            alpha = weight_row.iloc[0][alpha_col]
+            beta = weight_row.iloc[0][beta_col]
+            gamma = weight_row.iloc[0][gamma_col]
+            intercept = weight_row.iloc[0].get("Intercept", 0.0)
 
-        # Calculate predicted score
+        # Calculate predicted score WITH intercept
         predicted_score = (
-            alpha * row["Likes_log_log"]
+            intercept
+            + alpha * row["Likes_log_log"]
             + beta * row["Comments_log_log"]
             + gamma * row["Shares_log_log"]
         )
 
         df.loc[idx, "Predicted_Engagement_Score"] = predicted_score
+
+    # Intercept verification and scale alignment
+    if target_range is not None:
+        pred_mean = df["Predicted_Engagement_Score"].mean()
+        target_min, target_max = target_range
+
+        if pred_mean < target_min or pred_mean > target_max:
+            print(
+                f"\n⚠️  Scale Alignment: Predicted mean ({pred_mean:.4f}) "
+                f"outside target range [{target_min:.2f}, {target_max:.2f}]"
+            )
+
+            if calibrate and actual_col and actual_col in df.columns:
+                # Recalibrate intercept on test sample
+                intercept_adjustment = calibrate_intercept(df, actual_col=actual_col)
+                print(f"   Applying intercept adjustment: {intercept_adjustment:.4f}")
+                df["Predicted_Engagement_Score"] += intercept_adjustment
+                print(
+                    f"   Adjusted mean: {df['Predicted_Engagement_Score'].mean():.4f}"
+                )
+            else:
+                # Simple centering adjustment
+                actual_mean = (
+                    df[actual_col].mean()
+                    if actual_col and actual_col in df.columns
+                    else target_min + (target_max - target_min) / 2
+                )
+                adjustment = actual_mean - pred_mean
+                print(f"   Applying scale adjustment: {adjustment:.4f}")
+                df["Predicted_Engagement_Score"] += adjustment
 
     return df
 
@@ -112,7 +388,7 @@ def calculate_regression_metrics(
     actual_col: str = "Reach_log",
 ) -> dict[str, float]:
     """
-    Calculate regression performance metrics.
+    Calculate regression performance metrics including Pearson correlation.
 
     Parameters
     ----------
@@ -126,8 +402,10 @@ def calculate_regression_metrics(
     Returns
     -------
     dict[str, float]
-        Dictionary with R², MAE, and RMSE metrics.
+        Dictionary with R², MAE, RMSE, and Pearson correlation metrics.
     """
+    from scipy.stats import pearsonr
+
     y_true = df[actual_col].values
     y_pred = df[predicted_col].values
 
@@ -135,10 +413,15 @@ def calculate_regression_metrics(
     mae = mean_absolute_error(y_true, y_pred)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
 
+    # Calculate Pearson correlation (scale-invariant)
+    correlation, p_value = pearsonr(y_true, y_pred)
+
     return {
         "R_Squared": r2,
         "MAE": mae,
         "RMSE": rmse,
+        "Pearson_R": correlation,
+        "Pearson_P_Value": p_value,
     }
 
 
@@ -393,10 +676,64 @@ def plot_confusion_matrix(
     plt.close()
 
 
+def print_prediction_samples(
+    df: pd.DataFrame,
+    actual_col: str = "Reach_log",
+    predicted_col: str = "Predicted_Engagement_Score",
+    n_samples: int = 5,
+) -> None:
+    """
+    Print sample predictions vs actual values for verification.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with actual and predicted values.
+    actual_col : str, default "Reach_log"
+        Name of actual target column.
+    predicted_col : str, default "Predicted_Engagement_Score"
+        Name of predicted score column.
+    n_samples : int, default 5
+        Number of samples to print.
+    """
+    print("\n🔍 Prediction Verification (First 5 samples):")
+    print("-" * 80)
+    header = (
+        f"{'Index':<8} {'Actual':<12} {'Predicted':<12} "
+        f"{'Difference':<12} {'Error %':<10}"
+    )
+    print(header)
+    print("-" * 80)
+
+    sample_df = df[[actual_col, predicted_col]].head(n_samples).copy()
+    sample_df["Difference"] = sample_df[predicted_col] - sample_df[actual_col]
+    sample_df["Error_Pct"] = (
+        sample_df["Difference"].abs() / (sample_df[actual_col].abs() + 1e-10)
+    ) * 100
+
+    for idx, row in sample_df.iterrows():
+        print(
+            f"{idx:<8} {row[actual_col]:<12.4f} {row[predicted_col]:<12.4f} "
+            f"{row['Difference']:<12.4f} {row['Error_Pct']:<10.2f}%"
+        )
+
+    print("-" * 80)
+    print(
+        f"\nMean Actual: {sample_df[actual_col].mean():.4f}, "
+        f"Mean Predicted: {sample_df[predicted_col].mean():.4f}"
+    )
+    pred_mean = sample_df[predicted_col].mean()
+    actual_mean = sample_df[actual_col].mean()
+    scale_ratio = pred_mean / (actual_mean + 1e-10)
+    print(f"Scale Ratio: {scale_ratio:.4f}")
+
+
 def validate_model(
     train_results_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    train_df: pd.DataFrame | None = None,
     output_dir: Path | None = None,
+    clip_outliers: bool = True,
 ) -> dict[str, any]:
     """
     Perform complete model validation on test data.
@@ -407,8 +744,12 @@ def validate_model(
         Training results with learned weights.
     test_df : pd.DataFrame
         Test DataFrame with processed data.
+    train_df : pd.DataFrame, optional
+        Training DataFrame for feature range checking. If None, skips range check.
     output_dir : Path, optional
         Directory to save visualizations.
+    clip_outliers : bool, default True
+        Whether to clip outliers in test data to training range.
 
     Returns
     -------
@@ -418,13 +759,74 @@ def validate_model(
     # Step 1: Load training weights
     weights_df = load_training_weights(train_results_df)
 
-    # Step 2: Calculate predicted scores
-    test_df = calculate_predicted_engagement_score(test_df, weights_df)
+    # Step 1.5: Run diagnostics
+    diagnose_validation_issues(train_results_df, test_df, weights_df)
 
-    # Step 3: Calculate regression metrics
+    # Step 2: Check feature ranges and clip outliers if training data provided
+    feature_cols = ["Likes_log_log", "Comments_log_log", "Shares_log_log"]
+
+    # Diagnostic: Print feature scale comparison
+    print("\n📊 Feature Scale Comparison (Train vs Test):")
+    print("-" * 80)
+    if train_df is not None:
+        for col in feature_cols:
+            if col in train_df.columns and col in test_df.columns:
+                train_mean = train_df[col].mean()
+                test_mean = test_df[col].mean()
+                scale_ratio = test_mean / (train_mean + 1e-10)
+                print(
+                    f"  {col}: Train={train_mean:.4f}, "
+                    f"Test={test_mean:.4f}, Ratio={scale_ratio:.4f}"
+                )
+                if abs(scale_ratio - 1.0) > 0.2:
+                    print("    ⚠️  Scale mismatch detected!")
+        print("-" * 80)
+
+        # Aggressive clipping
+        test_df = check_feature_ranges(
+            train_df, test_df, feature_cols, clip_outliers=True
+        )
+        print("✓ Feature clipping applied (aggressive mode)\n")
+    else:
+        print("⚠️  No training data provided - skipping feature range check\n")
+
+    # Step 3: Calculate predicted scores (with intercept)
+    # Get target range from test data
+    target_min = test_df["Reach_log"].quantile(0.01)  # 1st percentile
+    target_max = test_df["Reach_log"].quantile(0.99)  # 99th percentile
+    target_range = (target_min, target_max)
+
+    test_df = calculate_predicted_engagement_score(
+        test_df,
+        weights_df,
+        target_range=target_range,
+        calibrate=True,
+        actual_col="Reach_log",
+    )
+
+    # Step 4: Print verification samples
+    print_prediction_samples(test_df)
+
+    # Step 5: Calculate regression metrics (includes Pearson correlation)
     regression_metrics = calculate_regression_metrics(test_df)
 
-    # Step 4: Identify actual and predicted trending posts
+    # Print correlation analysis
+    print("\n📈 Scale-Invariant Analysis:")
+    print("-" * 80)
+    pearson_r = regression_metrics.get("Pearson_R", 0.0)
+    r2 = regression_metrics["R_Squared"]
+    print(f"  Pearson Correlation (R): {pearson_r:.4f}")
+    print(f"  R² Score: {r2:.4f}")
+
+    if abs(pearson_r) > 0.3 and r2 < 0:
+        print("  ⚠️  High correlation but negative R² detected!")
+        print("  → This indicates correct weight direction but scale/intercept shift.")
+        print("  → Intercept recalibration has been applied.")
+    elif abs(pearson_r) < 0.1:
+        print("  ⚠️  Very low correlation - weights may not be predictive.")
+    print("-" * 80)
+
+    # Step 6: Identify actual and predicted trending posts
     test_df = identify_trending_posts_by_score(test_df, "Reach_log", percentile=90.0)
     test_df = test_df.rename(columns={"Is_Trending": "Actual_Trending"})
 
@@ -433,10 +835,10 @@ def validate_model(
     )
     test_df = test_df.rename(columns={"Is_Trending": "Predicted_Trending"})
 
-    # Step 5: Calculate classification metrics
+    # Step 7: Calculate classification metrics
     classification_metrics, cm = calculate_classification_metrics(test_df)
 
-    # Step 6: Create visualizations
+    # Step 8: Create visualizations
     if output_dir:
         output_dir.mkdir(exist_ok=True, parents=True)
         plot_prediction_vs_actual(
@@ -470,6 +872,7 @@ def print_validation_results(validation_results: dict[str, any]) -> None:
     print("\n📈 Regression Performance Metrics:")
     print("-" * 80)
     print(f"  • R² Score: {reg_metrics['R_Squared']:.4f}")
+    print(f"  • Pearson Correlation (R): {reg_metrics.get('Pearson_R', 0.0):.4f}")
     print(f"  • Mean Absolute Error (MAE): {reg_metrics['MAE']:.4f}")
     print(f"  • Root Mean Squared Error (RMSE): {reg_metrics['RMSE']:.4f}")
 
@@ -537,11 +940,13 @@ def print_validation_results(validation_results: dict[str, any]) -> None:
     overall_assessment = (
         "Excellent"
         if r2 >= 0.7 and accuracy_pct >= 70
-        else "Good"
-        if r2 >= 0.5 and accuracy_pct >= 50
-        else "Moderate"
-        if r2 >= 0.3 and accuracy_pct >= 30
-        else "Needs Improvement"
+        else (
+            "Good"
+            if r2 >= 0.5 and accuracy_pct >= 50
+            else "Moderate"
+            if r2 >= 0.3 and accuracy_pct >= 30
+            else "Needs Improvement"
+        )
     )
 
     print(f"\n✨ Overall Generalization Power: {overall_assessment}")

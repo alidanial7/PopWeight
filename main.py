@@ -265,6 +265,19 @@ def test_model():
         )
         return
 
+    # Load training data for feature range checking
+    print("\n📖 Loading training data for feature range validation...")
+    try:
+        train_db_path = project_root / "data" / "train.db"
+        train_df = read_from_sqlite(
+            db_path=str(train_db_path), table_name="train_data_processed"
+        )
+        print(f"✓ Loaded training data: {len(train_df):,} rows")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not load training data for range check: {e}")
+        print("   Validation will proceed without feature range checking.")
+        train_df = None
+
     # Perform validation
     print("\n" + "=" * 80)
     print("🔍 VALIDATION ANALYSIS")
@@ -277,7 +290,11 @@ def test_model():
         bar_format="{l_bar}{bar}| {n_fmt}% [{elapsed}<{remaining}]",
     ) as pbar:
         validation_results = validate_model(
-            train_results_df, test_df, output_dir=output_dir
+            train_results_df,
+            test_df,
+            train_df=train_df,
+            output_dir=output_dir,
+            clip_outliers=True,
         )
         pbar.update(100)
 
@@ -299,33 +316,38 @@ def main():
     Main entry point with train/test mode selection.
 
     Provides interactive menu to choose between training and testing.
+    Loops until user types 'q' to quit.
     """
     print("\n" + "=" * 80)
     print("🔬 ENGAGEMENT WEIGHT ANALYSIS SYSTEM")
     print("=" * 80)
-    print("\nSelect mode:")
-    print("  1. Train - Learn weights from training data")
-    print("  2. Test  - Validate weights on test data")
-    print()
 
     while True:
-        choice = (
-            input("Enter choice (1 for Train, 2 for Test, or 'q' to quit): ")
-            .strip()
-            .lower()
-        )
+        print("\nSelect mode:")
+        print("  1. Train - Learn weights from training data")
+        print("  2. Test  - Validate weights on test data")
+        print("  q. Quit - Exit the program")
+        print()
+
+        choice = input("Enter choice (1, 2, or 'q' to quit): ").strip().lower()
 
         if choice == "1" or choice == "train":
             train_model()
-            break
+            print("\n" + "-" * 80)
+            print("Returning to main menu...")
+            print("-" * 80)
         elif choice == "2" or choice == "test":
             test_model()
-            break
+            print("\n" + "-" * 80)
+            print("Returning to main menu...")
+            print("-" * 80)
         elif choice == "q" or choice == "quit":
             print("\n👋 Exiting...")
+            print("=" * 80 + "\n")
             break
         else:
             print("❌ Invalid choice. Please enter 1, 2, or 'q'.")
+            print()
 
 
 if __name__ == "__main__":

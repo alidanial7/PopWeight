@@ -152,15 +152,16 @@ def analyze_engagement_weights(
 
         model, r2, n_samples = model_result
 
-        # Extract coefficients
+        # Extract coefficients and intercept
         alpha = model.coef_[0]  # Likes_log_log
         beta = model.coef_[1]  # Comments_log_log
         gamma = model.coef_[2]  # Shares_log_log
+        intercept = model.intercept_  # Bias term
 
-        # Normalize weights
+        # Normalize weights (for display, but keep raw for prediction)
         alpha_norm, beta_norm, gamma_norm = normalize_weights(alpha, beta, gamma)
 
-        # Store results
+        # Store results (keep both normalized and raw coefficients)
         results.append(
             {
                 "Platform": platform,
@@ -168,6 +169,10 @@ def analyze_engagement_weights(
                 "Alpha_Likes": alpha_norm,
                 "Beta_Comments": beta_norm,
                 "Gamma_Shares": gamma_norm,
+                "Alpha_Raw": alpha,  # Raw coefficient for prediction
+                "Beta_Raw": beta,  # Raw coefficient for prediction
+                "Gamma_Raw": gamma,  # Raw coefficient for prediction
+                "Intercept": intercept,  # Intercept for prediction
                 "R_Squared": r2,
                 "N_Samples": n_samples,
             }
