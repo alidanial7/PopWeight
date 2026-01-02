@@ -1,0 +1,19 @@
+# Cursor Rules for PopWeight Project
+
+## Project Context
+
+- Always read the README.md file at the start of any task to understand the project goals, methodology, and context.
+- This project implements a data-driven framework for learning dynamic engagement weights (α, β, γ) for social media content popularity prediction.
+- The project uses log-log normalization and compares against fixed-weight baseline models.
+
+## Key Project Details
+
+- Dataset: Social Media Engagement Report with Likes, Comments, Shares, and Reach/Impressions
+- Goal: Learn optimal weights for engagement metrics instead of using fixed formulas
+
+## Code Guidelines
+
+- Follow Python best practices and maintain clean, readable code
+- Use type hints where appropriate
+- Document functions and classes clearly
+- Ensure code aligns with the research methodology described in the README
