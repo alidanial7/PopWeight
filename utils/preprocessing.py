@@ -91,7 +91,7 @@ def preprocess_data(
 
     Returns
     -------
-    tuple[pd.DataFrame, Optional[StandardScaler]]
+    tuple[pd.DataFrame, StandardScaler | None]
         Preprocessed DataFrame and fitted scaler (if fit_scaler=True).
     """
     df = df.copy()
