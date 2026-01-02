@@ -41,7 +41,7 @@ def main():
     # Define paths
     excel_path = project_root / "data" / "test.xlsx"
     db_path = project_root / "data" / "test.db"
-    table_name = "test_data"
+    table_name = "test_data_raw"
 
     # Check if Excel file exists
     if not excel_path.exists():

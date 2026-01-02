@@ -17,3 +17,58 @@
 - Use type hints where appropriate
 - Document functions and classes clearly
 - Ensure code aligns with the research methodology described in the README
+
+## Ruff Linting Rules
+
+This project uses Ruff for linting and formatting. **ALWAYS** ensure code passes Ruff checks:
+
+### Line Length
+- **Maximum line length: 88 characters** (configured in pyproject.toml)
+- If a line exceeds 88 characters, break it into multiple lines
+- For imports, use multi-line format when needed:
+  ```python
+  from utils import (
+      function1,
+      function2,
+      function3,
+  )
+  ```
+- For long strings, assign to variables:
+  ```python
+  long_string = (
+      "This is a very long string that would exceed "
+      "the line length limit if written on one line"
+  )
+  ```
+
+### Unused Variables
+- **B007**: Never use loop variables that aren't used in the loop body
+- Use `_` (underscore) for unused loop variables:
+  ```python
+  # ❌ Bad
+  for i in range(10):
+      do_something()
+  
+  # ✅ Good
+  for _ in range(10):
+      do_something()
+  ```
+
+### Code Quality Rules
+- **E501**: Line too long - Always break long lines
+- **B007**: Loop control variable not used - Use `_` for unused variables
+- **F**: Pyflakes errors - Fix all undefined names, unused imports, etc.
+- **E/W**: Pycodestyle errors/warnings - Follow PEP 8 style guide
+- **I**: Import sorting - Imports are automatically sorted by isort
+
+### Best Practices
+1. **Before committing**: Run `ruff check .` to verify no errors
+2. **Long strings**: Break into variables or use string concatenation
+3. **Long function calls**: Break arguments across multiple lines
+4. **Docstrings**: Keep usage examples under 88 characters per line
+5. **Type hints**: Always include type hints for function parameters and return types
+
+### Automatic Fixes
+- Ruff can auto-fix many issues with `ruff check --fix .`
+- Format code with `ruff format .`
+- Pre-commit hooks will run these automatically on commit

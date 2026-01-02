@@ -79,7 +79,9 @@ def import_test_command() -> None:
     # Validate Excel file exists
     if not excel_path.exists():
         print(f"Error: Excel file not found at {excel_path}")
-        print("Please ensure the file exists or specify a different path with --excel")
+        print(
+            "Please ensure the file exists or specify a different path " "with --excel"
+        )
         return
 
     # Load data from Excel

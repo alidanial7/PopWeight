@@ -123,3 +123,416 @@ Ruff configuration is defined in `pyproject.toml` with the following settings:
 - Line length: 88 characters
 - Enabled rule sets: pycodestyle, pyflakes, isort, flake8-bugbear, comprehensions, pyupgrade
 - Import sorting configured for the `utils` package
+
+#### Common Ruff Errors to Avoid
+
+- **E501**: Line too long (>88 characters) - Break long lines into multiple lines
+- **B007**: Unused loop variable - Use `_` for unused loop variables
+- **F401**: Unused imports - Remove unused imports
+- Always run `ruff check .` before committing to catch these issues early
+
+## 📦 Project Structure
+
+```
+PopWeight/
+├── data/                    # Data files directory
+│   ├── train.xlsx          # Training dataset (Excel)
+│   ├── test.xlsx           # Test dataset (Excel)
+│   ├── train.db            # Training SQLite database
+│   │   ├── train_data_raw          # Raw training data
+│   │   └── train_data_processed   # Preprocessed training data
+│   └── test.db             # Test SQLite database
+│       ├── test_data_raw           # Raw test data
+│       └── test_data_processed     # Preprocessed test data
+├── commands/               # Command-line interface modules
+│   ├── import_excel.py     # Generic Excel import command
+│   ├── import_train.py     # Training data import command
+│   ├── import_test.py      # Test data import command
+│   ├── preprocess_train.py # Training data preprocessing command
+│   └── preprocess_test.py  # Test data preprocessing command
+├── utils/                  # Utility functions
+│   ├── data_loader.py      # Excel file loading utilities
+│   ├── database.py         # SQLite database operations
+│   └── preprocessing.py    # Data preprocessing functions
+├── import_train.py         # Training data import script
+├── import_test.py          # Test data import script
+├── preprocess_train.py      # Training data preprocessing script
+├── preprocess_test.py       # Test data preprocessing script
+├── main.py                 # Main exploration script
+├── requirements.txt        # Python dependencies
+└── pyproject.toml          # Project configuration (Ruff, etc.)
+```
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Import Raw Data to Database
+
+Import training and test data from Excel files into SQLite databases:
+
+```bash
+# Import training data (creates train_data_raw table)
+python import_train.py
+
+# Import test data (creates test_data_raw table)
+python import_test.py
+```
+
+Both scripts will:
+- Load data from Excel files (`data/train.xlsx` and `data/test.xlsx`)
+- Save raw data to separate SQLite databases (`data/train.db` and `data/test.db`)
+- Create tables: `train_data_raw` and `test_data_raw`
+- Display progress bars and detailed logging
+- Create databases automatically if they don't exist
+
+### 3. Preprocess Data
+
+Apply data preprocessing transformations to prepare data for modeling:
+
+```bash
+# Preprocess training data (creates train_data_processed table)
+python preprocess_train.py
+
+# Preprocess test data (creates test_data_processed table)
+python preprocess_test.py
+```
+
+The preprocessing scripts will:
+- Read from raw data tables (`train_data_raw` and `test_data_raw`)
+- Apply comprehensive preprocessing transformations
+- Save processed data to separate tables (`train_data_processed` and `test_data_processed`)
+- Display detailed progress and transformation summaries
+
+## 📝 Data Import Scripts
+
+### Import Training Data (`import_train.py`)
+
+Simple script to import raw training data from Excel to SQLite.
+
+**Usage:**
+```bash
+python import_train.py
+```
+
+**Features:**
+- Reads from: `data/train.xlsx`
+- Saves to: `data/train.db` (table: `train_data_raw`)
+- Beautiful progress bars with `tqdm`
+- Detailed logging and error handling
+- Automatic directory creation
+
+**Output:**
+- Progress indicators for reading Excel and writing to database
+- Summary of loaded data (rows, columns, column preview)
+- Success confirmation with database location
+
+### Import Test Data (`import_test.py`)
+
+Simple script to import raw test data from Excel to SQLite.
+
+**Usage:**
+```bash
+python import_test.py
+```
+
+**Features:**
+- Reads from: `data/test.xlsx`
+- Saves to: `data/test.db` (table: `test_data_raw`)
+- Same beautiful UI and progress tracking as training script
+- Separate database to keep train/test data isolated
+
+## 🔧 Data Preprocessing Scripts
+
+### Preprocess Training Data (`preprocess_train.py`)
+
+Applies comprehensive data preprocessing transformations to training data.
+
+**Usage:**
+```bash
+python preprocess_train.py
+```
+
+**Features:**
+- Reads from: `data/train.db` (table: `train_data_raw`)
+- Saves to: `data/train.db` (table: `train_data_processed`)
+- Applies all preprocessing transformations (see below)
+- Beautiful progress bars and step-by-step indicators
+- Detailed transformation summaries
+
+**Preprocessing Steps:**
+1. **Missing Value Handling**: Fills numerical columns with median, categorical with 'None'
+2. **Log-Log Normalization**: Applies `log(log(x + 1) + 1)` to Likes, Comments, Shares
+3. **Temporal Feature Extraction**: Extracts Hour_of_day, Day_of_week, Is_Weekend from Post Timestamp
+4. **One-Hot Encoding**: Encodes Platform, Post Type, and Sentiment
+5. **Feature Scaling**: Applies StandardScaler to Audience Age
+6. **Target Transformation**: Applies log transformation to Reach (target variable)
+
+**Output:**
+- Progress indicators for each preprocessing step
+- Summary of original vs processed data (rows, columns)
+- Number of new columns added
+- Success confirmation with database location
+
+### Preprocess Test Data (`preprocess_test.py`)
+
+Applies the same preprocessing transformations to test data.
+
+**Usage:**
+```bash
+python preprocess_test.py
+```
+
+**Features:**
+- Reads from: `data/test.db` (table: `test_data_raw`)
+- Saves to: `data/test.db` (table: `test_data_processed`)
+- Same preprocessing pipeline as training data
+- Beautiful UI and progress tracking
+
+**Note:** The preprocessing pipeline ensures consistency between training and test data transformations.
+
+## 🗄️ Database Structure
+
+The project uses **4 separate tables** to maintain raw and processed data:
+
+### Training Database (`data/train.db`)
+
+1. **`train_data_raw`** - Raw training data imported from Excel
+   - Contains original columns from `data/train.xlsx`
+   - No preprocessing applied
+   - Created by: `import_train.py`
+
+2. **`train_data_processed`** - Preprocessed training data
+   - Contains all original columns plus new features
+   - All preprocessing transformations applied
+   - Created by: `preprocess_train.py`
+
+### Test Database (`data/test.db`)
+
+3. **`test_data_raw`** - Raw test data imported from Excel
+   - Contains original columns from `data/test.xlsx`
+   - No preprocessing applied
+   - Created by: `import_test.py`
+
+4. **`test_data_processed`** - Preprocessed test data
+   - Contains all original columns plus new features
+   - All preprocessing transformations applied
+   - Created by: `preprocess_test.py`
+
+## 🛠️ Database Utilities
+
+The project includes utilities for working with SQLite databases in `utils/database.py`:
+
+### Functions
+
+#### `save_to_sqlite(df, db_path, table_name, if_exists)`
+Save a pandas DataFrame to a SQLite database.
+
+**Parameters:**
+- `df`: pandas DataFrame to save
+- `db_path`: Path to SQLite database file
+- `table_name`: Name of the table (default: `"social_media_data"`)
+- `if_exists`: Behavior if table exists - `"fail"`, `"replace"`, or `"append"` (default: `"replace"`)
+
+**Example:**
+```python
+from utils import save_to_sqlite
+import pandas as pd
+
+df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
+save_to_sqlite(df, "data.db", table_name="my_table")
+```
+
+#### `read_from_sqlite(db_path, table_name, query)`
+Read data from a SQLite database into a pandas DataFrame.
+
+**Parameters:**
+- `db_path`: Path to SQLite database file
+- `table_name`: Name of the table to read (default: `"social_media_data"`)
+- `query`: Optional SQL query (if provided, `table_name` is ignored)
+
+**Example:**
+```python
+from utils import read_from_sqlite
+
+# Read entire table
+df = read_from_sqlite("data/train.db", table_name="train_data_raw")
+
+# Read processed data
+df = read_from_sqlite("data/train.db", table_name="train_data_processed")
+
+# Read with custom query
+df = read_from_sqlite(
+    "data/train.db",
+    query="SELECT * FROM train_data_raw WHERE Likes > 100"
+)
+```
+
+#### `list_tables(db_path)`
+List all tables in a SQLite database.
+
+**Example:**
+```python
+from utils import list_tables
+
+tables = list_tables("data/train.db")
+print(tables)  # ['train_data_raw', 'train_data_processed']
+```
+
+## 🔄 Data Preprocessing Pipeline
+
+The preprocessing pipeline in `utils/preprocessing.py` applies the following transformations:
+
+### 1. Missing Value Handling
+- **Numerical columns**: Filled with median value
+- **Categorical columns**: Filled with 'None'
+
+### 2. Log-Log Normalization
+Applies the formula `x' = log(log(x + 1) + 1)` to handle skewness in:
+- `Likes`
+- `Comments`
+- `Shares`
+
+Creates new columns: `Likes_log_log`, `Comments_log_log`, `Shares_log_log`
+
+### 3. Temporal Feature Extraction
+Extracts features from `Post Timestamp`:
+- `Hour_of_day`: Hour of the day (0-23)
+- `Day_of_week`: Day of the week (0=Monday, 6=Sunday)
+- `Is_Weekend`: Boolean (1 if Saturday/Sunday, 0 otherwise)
+
+### 4. One-Hot Encoding
+Encodes categorical variables:
+- `Platform`: Creates columns like `Platform_Facebook`, `Platform_Instagram`, etc.
+- `Post Type`: Creates columns like `Post_Type_Image`, `Post_Type_Video`, etc.
+- `Sentiment`: Creates columns like `Sentiment_Positive`, `Sentiment_Neutral`, etc.
+
+### 5. Feature Scaling
+- Applies `StandardScaler` to `Audience Age` (normalizes to mean=0, std=1)
+
+### 6. Target Variable Transformation
+- Applies log transformation to `Reach`: `Reach_log = log(Reach + 1)`
+
+**Note:** Original columns are preserved alongside new features, allowing you to reference both raw and processed data.
+
+## ⌨️ Command-Line Interface
+
+The project includes command-line commands for data import operations:
+
+### Available Commands
+
+#### `import-train`
+Import raw training data from Excel to SQLite database.
+
+**Usage:**
+```bash
+# Using default paths (data/train.xlsx -> data/train.db)
+python -m commands.import_train
+
+# With custom paths
+python -m commands.import_train --excel data/train.xlsx --db data/train.db
+
+# With custom table name
+python -m commands.import_train --table my_train_table
+
+# Append to existing table
+python -m commands.import_train --if-exists append
+```
+
+**Options:**
+- `--excel`: Path to Excel file (default: `data/train.xlsx`)
+- `--db`: Path to database file (default: `data/train.db`)
+- `--table`: Table name (default: `train_data_raw`)
+- `--sheet`: Excel sheet name/index (default: first sheet)
+- `--if-exists`: Behavior if table exists - `fail`, `replace`, or `append` (default: `replace`)
+
+#### `import-test`
+Import raw test data from Excel to SQLite database.
+
+**Usage:**
+```bash
+# Using default paths (data/test.xlsx -> data/test.db)
+python -m commands.import_test
+
+# With custom paths
+python -m commands.import_test --excel data/test.xlsx --db data/test.db
+```
+
+**Options:** Same as `import-train` command (default table: `test_data_raw`)
+
+#### `preprocess-train`
+Preprocess training data from SQLite database.
+
+**Usage:**
+```bash
+# Using default paths
+python -m commands.preprocess_train
+
+# With custom paths
+python -m commands.preprocess_train --db data/train.db --table train_data_raw
+```
+
+**Options:**
+- `--db`: Path to database file (default: `data/train.db`)
+- `--table`: Input table name (default: `train_data_raw`)
+- `--output-table`: Output table name (default: `train_data_processed`)
+- `--if-exists`: Behavior if output table exists (default: `replace`)
+
+#### `preprocess-test`
+Preprocess test data from SQLite database.
+
+**Usage:**
+```bash
+# Using default paths
+python -m commands.preprocess_test
+
+# With custom paths
+python -m commands.preprocess_test --db data/test.db --table test_data_raw
+```
+
+**Options:** Same as `preprocess-train` command (defaults: `test_data_raw` → `test_data_processed`)
+
+#### `import-excel`
+Generic Excel import command (requires all parameters).
+
+**Usage:**
+```bash
+python -m commands.import_excel --excel data/file.xlsx --db data/database.db
+```
+
+**Options:**
+- `--excel`: Path to Excel file (required)
+- `--db`: Path to database file (required)
+- `--table`: Table name (default: `social_media_data`)
+- `--sheet`: Excel sheet name/index (default: first sheet)
+- `--if-exists`: Behavior if table exists (default: `replace`)
+
+### After Package Installation
+
+If you install the package, these commands are available directly:
+
+```bash
+import-train --excel data/train.xlsx --db data/train.db
+import-test --excel data/test.xlsx --db data/test.db
+import-excel --excel data/file.xlsx --db data/database.db
+```
+
+## 🔍 Data Exploration
+
+Use `main.py` to explore the loaded data:
+
+```bash
+python main.py
+```
+
+This script will:
+- Load data from Excel
+- Display column information and data types
+- Save data to SQLite database
+- List tables in the database
+- Read data back from database
+- Show example queries
