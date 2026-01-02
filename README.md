@@ -93,3 +93,33 @@ The dataset contains **999 social media posts** with **18 features** covering co
 - Use `typing` module for complex types (e.g., `List`, `Dict`, `Optional`, `Union`)
 - Prefer type annotations over comments for type information
 - Use `mypy` or similar type checkers to validate type safety before committing
+
+### Code Quality & Formatting
+
+This project uses **[Ruff](https://docs.astral.sh/ruff/)** for linting and code formatting, integrated with **pre-commit** hooks to ensure consistent code quality.
+
+#### Setup
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Install pre-commit hooks:
+   ```bash
+   pre-commit install
+   ```
+
+#### Usage
+
+- **Automatic**: Pre-commit hooks run automatically on every `git commit`, checking and fixing code issues
+- **Manual linting**: Run `ruff check .` to check for linting issues
+- **Manual formatting**: Run `ruff format .` to format code
+- **Check all files**: Run `pre-commit run --all-files` to check the entire codebase
+
+#### Configuration
+
+Ruff configuration is defined in `pyproject.toml` with the following settings:
+- Line length: 88 characters
+- Enabled rule sets: pycodestyle, pyflakes, isort, flake8-bugbear, comprehensions, pyupgrade
+- Import sorting configured for the `utils` package

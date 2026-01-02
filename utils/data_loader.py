@@ -1,13 +1,12 @@
 """Utility functions for loading data files."""
 
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
 
 def load_social_media_data(
-    file_path: Optional[str] = None, sheet_name: Optional[str] = None
+    file_path: str | None = None, sheet_name: str | None = None
 ) -> pd.DataFrame:
     """
     Load social media engagement data from Excel file.
@@ -55,7 +54,8 @@ def load_social_media_data(
 
     try:
         # Read Excel file
-        # If sheet_name is None, default to first sheet (index 0) to ensure DataFrame return
+        # If sheet_name is None, default to first sheet (index 0)
+        # to ensure DataFrame return
         if sheet_name is None:
             sheet_name = 0
 
@@ -69,5 +69,6 @@ def load_social_media_data(
     except Exception as e:
         raise ValueError(
             f"Error reading Excel file at {file_path}: {str(e)}\n"
-            f"Make sure the file is a valid Excel file and that 'openpyxl' is installed."
+            "Make sure the file is a valid Excel file and that 'openpyxl' "
+            "is installed."
         ) from e
