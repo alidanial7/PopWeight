@@ -1,5 +1,6 @@
 """Analysis module for engagement weight analysis."""
 
+from .correlation import analyze_correlation
 from .insights import (
     generate_statistical_insights,
     print_statistical_insights,
@@ -54,4 +55,5 @@ __all__ = [
     "plot_prediction_vs_actual",
     "plot_confusion_matrix",
     "print_validation_results",
+    "analyze_correlation",
 ]

@@ -1,11 +1,19 @@
-"""Main script for engagement weight analysis with train/test modes."""
+"""Main script for engagement weight analysis with train/test modes.
 
-import time
+This module provides the main entry point for the PopWeight analysis system.
+It offers an interactive menu for:
+- Training models on engagement data
+- Testing/validating models on test data
+- Analyzing correlations between engagement metrics and reach
+
+The script is organized into modular functions for each major operation,
+making it easy to maintain and extend.
+"""
+
 from pathlib import Path
 
-from tqdm import tqdm
-
 from analysis import (
+    analyze_correlation,
     analyze_engagement_weights,
     calculate_engagement_zscore,
     create_facet_grid_chart,
@@ -19,15 +27,33 @@ from analysis import (
     train_trending_classifier,
     validate_model,
 )
-from utils import load_training_results, read_from_sqlite, save_training_results
+from utils import (
+    load_training_results,
+    save_training_results,
+)
+from utils.data_loading import load_processed_data
 
 
-def train_model():
+def train_model() -> None:
     """
     Train model on training data and find best options.
 
-    Performs cross-sectional analysis, generates visualizations,
-    statistical insights, and saves training results.
+    This function performs the complete training workflow:
+    1. Loads preprocessed training data
+    2. Performs cross-sectional analysis with Linear and RF models
+    3. Selects the best performing model
+    4. Generates visualizations (heatmaps, facet grids)
+    5. Provides statistical insights
+    6. Identifies trending posts
+    7. Saves training results for later validation
+
+    The function compares Linear Regression and Random Forest models,
+    selecting the one with the highest R² score for each segment.
+
+    Raises
+    ------
+    ValueError
+        If data cannot be loaded or no valid segments are found.
     """
     print("\n" + "=" * 80)
     print("🎓 TRAINING MODE: Learning Engagement Weights")
@@ -35,41 +61,21 @@ def train_model():
 
     # Get project root directory
     project_root = Path(__file__).parent
-    db_path = project_root / "data" / "train.db"
-    table_name = "train_data_processed"
 
-    # Load preprocessed data
-    print("\n📖 Loading preprocessed training data...")
+    # Load preprocessed training data
     try:
-        with tqdm(
-            total=100,
-            desc="Reading database",
-            bar_format="{l_bar}{bar}| {n_fmt}%",
-        ) as pbar:
-            # Simulate progress for database reading
-            for _ in range(0, 100, 25):
-                time.sleep(0.05)
-                pbar.update(25)
-
-            df = read_from_sqlite(db_path=str(db_path), table_name=table_name)
-            pbar.update(100 - pbar.n)
-
-        print(f"✓ Loaded {len(df):,} rows × {len(df.columns)} columns")
-    except Exception as e:
-        print(f"❌ Error loading data: {e}")
-        print(
-            "\nPlease ensure you have run:"
-            "\n  1. python import_train.py"
-            "\n  2. python preprocess_train.py"
-        )
+        df, _ = load_processed_data(project_root, "train", "processed")
+    except ValueError as e:
+        print(f"\n{e}")
         return
 
     # Step 1: Cross-Sectional Analysis
+    # Train both Linear Regression and Random Forest models
+    # to compare performance and select the best approach
     print("\n" + "=" * 80)
     print("📊 STEP 1: Cross-Sectional Analysis")
     print("=" * 80)
 
-    # Try both Linear and Random Forest models
     print("Training models (Linear + Random Forest)...")
     results_df_linear, _ = analyze_engagement_weights(
         df,
@@ -87,32 +93,11 @@ def train_model():
         target_col="Engagement_Rate",
     )
 
-    # Compare models and select best
-    if len(results_df_linear) > 0 and len(results_df_rf) > 0:
-        linear_mean_r2 = results_df_linear["R_Squared"].mean()
-        rf_mean_r2 = results_df_rf["R_Squared"].mean()
-        print(
-            f"📊 Comparison: Linear R²={linear_mean_r2:.4f}, "
-            f"RF R²={rf_mean_r2:.4f}",
-            end="",
-        )
-
-        if rf_mean_r2 > linear_mean_r2:
-            print(" → Using RF")
-            results_df = results_df_rf
-            selected_models = rf_models
-        else:
-            print(" → Using Linear")
-            results_df = results_df_linear
-            selected_models = None
-    elif len(results_df_rf) > 0:
-        print("✓ Using Random Forest (Linear failed)")
-        results_df = results_df_rf
-        selected_models = rf_models
-    else:
-        print("✓ Using Linear Regression")
-        results_df = results_df_linear
-        selected_models = None
+    # Compare models and select the best performing one
+    # Selection is based on mean R² score across all segments
+    results_df, selected_models = _select_best_model(
+        results_df_linear, results_df_rf, rf_models
+    )
 
     if len(results_df) == 0:
         print("❌ No valid segments found. Check your data and try again.")
@@ -190,11 +175,68 @@ def train_model():
     print("=" * 80 + "\n")
 
 
-def test_model():
+def _select_best_model(results_df_linear, results_df_rf, rf_models) -> tuple:
+    """
+    Select the best performing model based on R² scores.
+
+    Parameters
+    ----------
+    results_df_linear : pd.DataFrame
+        Results from Linear Regression model.
+    results_df_rf : pd.DataFrame
+        Results from Random Forest model.
+    rf_models : dict
+        Dictionary of trained Random Forest models.
+
+    Returns
+    -------
+    tuple
+        Tuple of (best_results_df, selected_models) where selected_models
+        is None for Linear Regression or the rf_models dict for RF.
+    """
+    if len(results_df_linear) > 0 and len(results_df_rf) > 0:
+        linear_mean_r2 = results_df_linear["R_Squared"].mean()
+        rf_mean_r2 = results_df_rf["R_Squared"].mean()
+        print(
+            f"📊 Comparison: Linear R²={linear_mean_r2:.4f}, "
+            f"RF R²={rf_mean_r2:.4f}",
+            end="",
+        )
+
+        if rf_mean_r2 > linear_mean_r2:
+            print(" → Using RF")
+            return results_df_rf, rf_models
+        else:
+            print(" → Using Linear")
+            return results_df_linear, None
+    elif len(results_df_rf) > 0:
+        print("✓ Using Random Forest (Linear failed)")
+        return results_df_rf, rf_models
+    else:
+        print("✓ Using Linear Regression")
+        return results_df_linear, None
+
+
+def test_model() -> None:
     """
     Test model on test data and provide validation analysis.
 
-    Loads learned weights from training and validates on test set.
+    This function performs the complete validation workflow:
+    1. Loads training results (weights and optionally models)
+    2. Loads preprocessed test data
+    3. Optionally loads training data for feature range validation
+    4. Validates model performance on test set
+    5. Generates validation visualizations and metrics
+
+    The function handles cases where Random Forest models may not be
+    available, falling back to weight-based predictions.
+
+    Raises
+    ------
+    FileNotFoundError
+        If training results cannot be found.
+    ValueError
+        If test data cannot be loaded.
     """
     print("\n" + "=" * 80)
     print("🧪 TESTING MODE: Validating on Test Data")
@@ -204,7 +246,58 @@ def test_model():
     project_root = Path(__file__).parent
     output_dir = project_root / "outputs"
 
-    # Load training results
+    # Load training results (weights and optionally models)
+    train_results_df, rf_models = _load_training_results(output_dir)
+    if train_results_df is None:
+        return
+
+    # Load test data
+    try:
+        test_df, _ = load_processed_data(project_root, "test", "processed")
+    except ValueError as e:
+        print(f"\n{e}")
+        return
+
+    # Optionally load training data for feature range validation
+    # This helps identify if test data has values outside training range
+    train_df = _load_training_data_for_validation(project_root)
+
+    # Perform validation analysis
+    print("\n" + "=" * 80)
+    print("🔍 VALIDATION ANALYSIS")
+    print("=" * 80)
+
+    print("\nValidating model on test data...")
+    validation_results = validate_model(
+        train_results_df,
+        test_df,
+        train_df=train_df,
+        output_dir=output_dir,
+        clip_outliers=True,
+        rf_models=rf_models,
+    )
+
+    # Display validation results
+    print_validation_results(validation_results)
+
+    # Display summary
+    _print_validation_summary(output_dir)
+
+
+def _load_training_results(output_dir: Path) -> tuple:
+    """
+    Load training results from saved files.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory containing training results.
+
+    Returns
+    -------
+    tuple
+        Tuple of (train_results_df, rf_models) or (None, None) on error.
+    """
     print("\n📖 Loading training results...")
     try:
         results_path = output_dir / "training_results.db"
@@ -214,87 +307,58 @@ def test_model():
         print(f"✓ Loaded training results: {len(train_results_df)} segments")
         if rf_models:
             print(f"✓ Loaded {len(rf_models)} Random Forest models")
+        return train_results_df, rf_models
     except FileNotFoundError as e:
         print(f"❌ {e}")
         print("\nPlease run 'train' mode first to generate training results.")
-        return
+        return None, None
     except Exception:
         # Fallback if models not available
         try:
+            results_path = output_dir / "training_results.db"
             train_results_df = load_training_results(results_path, from_db=True)
-            rf_models = None
             print(f"✓ Loaded training results: {len(train_results_df)} segments")
             print("⚠️  Models not available (using weight-based prediction)")
+            return train_results_df, None
         except Exception as e2:
             print(f"❌ {e2}")
-            return
+            return None, None
 
-    # Load test data
-    print("\n📖 Loading preprocessed test data...")
-    try:
-        test_db_path = project_root / "data" / "test.db"
-        with tqdm(
-            total=100,
-            desc="Reading test database",
-            bar_format="{l_bar}{bar}| {n_fmt}%",
-        ) as pbar:
-            for _ in range(0, 100, 25):
-                time.sleep(0.05)
-                pbar.update(25)
 
-            test_df = read_from_sqlite(
-                db_path=str(test_db_path), table_name="test_data_processed"
-            )
-            pbar.update(100 - pbar.n)
+def _load_training_data_for_validation(project_root: Path):
+    """
+    Load training data for feature range validation.
 
-        print(f"✓ Loaded {len(test_df):,} rows × {len(test_df.columns)} columns")
-    except Exception as e:
-        print(f"❌ Error loading test data: {e}")
-        print(
-            "\nPlease ensure you have run:"
-            "\n  1. python import_test.py"
-            "\n  2. python preprocess_test.py"
-        )
-        return
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the project.
 
-    # Load training data for feature range checking
+    Returns
+    -------
+    pd.DataFrame | None
+        Training DataFrame if loaded successfully, None otherwise.
+    """
     print("\n📖 Loading training data for feature range validation...")
     try:
-        train_db_path = project_root / "data" / "train.db"
-        train_df = read_from_sqlite(
-            db_path=str(train_db_path), table_name="train_data_processed"
-        )
+        train_df, _ = load_processed_data(project_root, "train", "processed")
         print(f"✓ Loaded training data: {len(train_df):,} rows")
+        return train_df
     except Exception as e:
-        print(f"⚠️  Warning: Could not load training data for range check: {e}")
+        print(f"⚠️  Warning: Could not load training data: {e}")
         print("   Validation will proceed without feature range checking.")
-        train_df = None
+        return None
 
-    # Perform validation
-    print("\n" + "=" * 80)
-    print("🔍 VALIDATION ANALYSIS")
-    print("=" * 80)
 
-    print("\nValidating model on test data...")
-    with tqdm(
-        total=100,
-        desc="  Validating model",
-        bar_format="{l_bar}{bar}| {n_fmt}% [{elapsed}<{remaining}]",
-    ) as pbar:
-        validation_results = validate_model(
-            train_results_df,
-            test_df,
-            train_df=train_df,
-            output_dir=output_dir,
-            clip_outliers=True,
-            rf_models=rf_models,
-        )
-        pbar.update(100)
+def _print_validation_summary(output_dir: Path) -> None:
+    """
+    Print validation summary with file locations.
 
-    # Print validation results
-    print_validation_results(validation_results)
-
-    # Summary
+    Parameters
+    ----------
+    output_dir : Path
+        Directory containing validation outputs.
+    """
     print("\n" + "=" * 80)
     print("✅ VALIDATION COMPLETE")
     print("=" * 80)
@@ -304,178 +368,128 @@ def test_model():
     print("=" * 80 + "\n")
 
 
-def calculate_correlation(col1: str, col2: str, data_source: str = "train") -> None:
+def correlation_likes_reach() -> None:
     """
-    Calculate and display correlation between two columns.
+    Calculate and display correlation between Likes and Reach.
+
+    This is a convenience wrapper for the correlation analysis module.
+    """
+    analyze_correlation("Likes", "Reach", data_source="train")
+
+
+def correlation_comments_reach() -> None:
+    """
+    Calculate and display correlation between Comments and Reach.
+
+    This is a convenience wrapper for the correlation analysis module.
+    """
+    analyze_correlation("Comments", "Reach", data_source="train")
+
+
+def correlation_shares_reach() -> None:
+    """
+    Calculate and display correlation between Shares and Reach.
+
+    This is a convenience wrapper for the correlation analysis module.
+    """
+    analyze_correlation("Shares", "Reach", data_source="train")
+
+
+def _display_menu() -> None:
+    """
+    Display the main menu options to the user.
+
+    This function prints a formatted menu with all available options
+    for the engagement weight analysis system.
+    """
+    print("\nSelect mode:")
+    print("  1. Train - Learn weights from training data")
+    print("  2. Test  - Validate weights on test data")
+    print("  3. Correlation - Likes vs Reach")
+    print("  4. Correlation - Comments vs Reach")
+    print("  5. Correlation - Shares vs Reach")
+    print("  q. Quit - Exit the program")
+    print()
+
+
+def _handle_menu_choice(choice: str) -> bool:
+    """
+    Handle user menu choice and execute corresponding action.
 
     Parameters
     ----------
-    col1 : str
-        First column name.
-    col2 : str
-        Second column name.
-    data_source : str, default "train"
-        Data source to use: "train" or "test".
+    choice : str
+        User's menu choice (1-5, 'q', 'train', 'test', etc.).
+
+    Returns
+    -------
+    bool
+        True if the program should continue, False if it should exit.
     """
-    print("\n" + "=" * 80)
-    print(f"📊 CORRELATION ANALYSIS: {col1} vs {col2}")
-    print("=" * 80)
+    choice = choice.strip().lower()
 
-    # Get project root directory
-    project_root = Path(__file__).parent
-    db_path = project_root / "data" / f"{data_source}.db"
-    table_name = f"{data_source}_data_raw"
+    # Map choices to functions
+    menu_actions = {
+        "1": train_model,
+        "train": train_model,
+        "2": test_model,
+        "test": test_model,
+        "3": correlation_likes_reach,
+        "4": correlation_comments_reach,
+        "5": correlation_shares_reach,
+    }
 
-    # Load data
-    print(f"\n📖 Loading {data_source} data...")
-    try:
-        with tqdm(
-            total=100,
-            desc="Reading database",
-            bar_format="{l_bar}{bar}| {n_fmt}%",
-        ) as pbar:
-            for _ in range(0, 100, 25):
-                time.sleep(0.05)
-                pbar.update(25)
+    # Handle quit
+    if choice in ("q", "quit"):
+        print("\n👋 Exiting...")
+        print("=" * 80 + "\n")
+        return False
 
-            df = read_from_sqlite(db_path=str(db_path), table_name=table_name)
-            pbar.update(100 - pbar.n)
+    # Execute action if valid choice
+    if choice in menu_actions:
+        menu_actions[choice]()
+        print("\n" + "-" * 80)
+        print("Returning to main menu...")
+        print("-" * 80)
+        return True
 
-        print(f"✓ Loaded {len(df):,} rows × {len(df.columns)} columns")
-    except Exception as e:
-        print(f"❌ Error loading data: {e}")
-        print(f"\nPlease ensure you have run:" f"\n  1. python import_{data_source}.py")
-        return
-
-    # Check if columns exist
-    if col1 not in df.columns:
-        print(f"❌ Column '{col1}' not found in data")
-        print(f"Available columns: {', '.join(df.columns[:10])}...")
-        return
-
-    if col2 not in df.columns:
-        print(f"❌ Column '{col2}' not found in data")
-        print(f"Available columns: {', '.join(df.columns[:10])}...")
-        return
-
-    # Calculate correlation
-    print("\n🔍 Calculating correlation...")
-    correlation = df[col1].corr(df[col2])
-
-    # Display results
-    print("\n" + "-" * 80)
-    print("CORRELATION RESULTS")
-    print("-" * 80)
-    print(f"Column 1: {col1}")
-    print(f"Column 2: {col2}")
-    print(f"Correlation Coefficient: {correlation:.4f}")
-
-    # Interpret correlation
-    abs_corr = abs(correlation)
-    if abs_corr < 0.1:
-        strength = "negligible"
-    elif abs_corr < 0.3:
-        strength = "weak"
-    elif abs_corr < 0.5:
-        strength = "moderate"
-    elif abs_corr < 0.7:
-        strength = "strong"
-    else:
-        strength = "very strong"
-
-    direction = "positive" if correlation > 0 else "negative"
-    print(f"Interpretation: {strength} {direction} correlation")
-
-    # Additional statistics
-    print("\n" + "-" * 80)
-    print("STATISTICAL SUMMARY")
-    print("-" * 80)
-    print(f"{col1}:")
-    print(f"  Mean: {df[col1].mean():.2f}")
-    print(f"  Std:  {df[col1].std():.2f}")
-    print(f"  Min:  {df[col1].min():.2f}")
-    print(f"  Max:  {df[col1].max():.2f}")
-    print(f"\n{col2}:")
-    print(f"  Mean: {df[col2].mean():.2f}")
-    print(f"  Std:  {df[col2].std():.2f}")
-    print(f"  Min:  {df[col2].min():.2f}")
-    print(f"  Max:  {df[col2].max():.2f}")
-
-    print("\n" + "=" * 80)
-    print("✅ CORRELATION ANALYSIS COMPLETE")
-    print("=" * 80 + "\n")
+    # Invalid choice
+    print("❌ Invalid choice. Please enter 1-5, or 'q'.")
+    print()
+    return True
 
 
-def correlation_likes_reach():
-    """Calculate correlation between Likes and Reach."""
-    calculate_correlation("Likes", "Reach", data_source="train")
-
-
-def correlation_comments_reach():
-    """Calculate correlation between Comments and Reach."""
-    calculate_correlation("Comments", "Reach", data_source="train")
-
-
-def correlation_shares_reach():
-    """Calculate correlation between Shares and Reach."""
-    calculate_correlation("Shares", "Reach", data_source="train")
-
-
-def main():
+def main() -> None:
     """
-    Main entry point with train/test mode selection.
+    Main entry point for the engagement weight analysis system.
 
-    Provides interactive menu to choose between training and testing.
-    Loops until user types 'q' to quit.
+    This function provides an interactive menu-driven interface that allows
+    users to:
+    - Train models on engagement data
+    - Validate models on test data
+    - Analyze correlations between engagement metrics and reach
+
+    The function runs in a loop until the user chooses to quit.
+
+    Examples
+    --------
+    Run the main script:
+        python main.py
+
+    The script will display a menu and wait for user input.
     """
     print("\n" + "=" * 80)
     print("🔬 ENGAGEMENT WEIGHT ANALYSIS SYSTEM")
     print("=" * 80)
 
+    # Main loop - continue until user quits
     while True:
-        print("\nSelect mode:")
-        print("  1. Train - Learn weights from training data")
-        print("  2. Test  - Validate weights on test data")
-        print("  3. Correlation - Likes vs Reach")
-        print("  4. Correlation - Comments vs Reach")
-        print("  5. Correlation - Shares vs Reach")
-        print("  q. Quit - Exit the program")
-        print()
+        _display_menu()
+        choice = input("Enter choice (1-5, or 'q' to quit): ")
 
-        choice = input("Enter choice (1-5, or 'q' to quit): ").strip().lower()
-
-        if choice == "1" or choice == "train":
-            train_model()
-            print("\n" + "-" * 80)
-            print("Returning to main menu...")
-            print("-" * 80)
-        elif choice == "2" or choice == "test":
-            test_model()
-            print("\n" + "-" * 80)
-            print("Returning to main menu...")
-            print("-" * 80)
-        elif choice == "3":
-            correlation_likes_reach()
-            print("\n" + "-" * 80)
-            print("Returning to main menu...")
-            print("-" * 80)
-        elif choice == "4":
-            correlation_comments_reach()
-            print("\n" + "-" * 80)
-            print("Returning to main menu...")
-            print("-" * 80)
-        elif choice == "5":
-            correlation_shares_reach()
-            print("\n" + "-" * 80)
-            print("Returning to main menu...")
-            print("-" * 80)
-        elif choice == "q" or choice == "quit":
-            print("\n👋 Exiting...")
-            print("=" * 80 + "\n")
+        # Handle choice and check if we should continue
+        if not _handle_menu_choice(choice):
             break
-        else:
-            print("❌ Invalid choice. Please enter 1-5, or 'q'.")
-            print()
 
 
 if __name__ == "__main__":
