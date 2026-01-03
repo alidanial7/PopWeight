@@ -83,3 +83,18 @@ This project uses Ruff for linting and formatting. **ALWAYS** ensure code passes
 - Ruff can auto-fix many issues with `ruff check --fix .`
 - Format code with `ruff format .`
 - Pre-commit hooks will run these automatically on commit
+
+## Documentation Maintenance
+
+### README Updates
+- **After each response**: Check if README needs updates based on code changes
+- **When adding features**: Update relevant README files:
+  - Main `README.md` for high-level changes
+  - `workflows/README.md` for workflow changes
+  - `utils/README.md` for utility function changes
+  - `analysis/README.md` for analysis module changes
+- **When modifying functions**: Update function documentation in the appropriate README
+- **Keep links current**: Ensure all cross-references between READMEs are accurate
+- **Documentation structure**: 
+  - Main README: Overview, quick start, project structure, links to sub-READMEs
+  - Sub-READMEs: Detailed API documentation, examples, usage patterns

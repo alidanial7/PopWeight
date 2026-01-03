@@ -103,6 +103,7 @@ This project uses **[Ruff](https://docs.astral.sh/ruff/)** for linting and code 
 #### Setup
 
 1. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -122,6 +123,7 @@ This project uses **[Ruff](https://docs.astral.sh/ruff/)** for linting and code 
 #### Configuration
 
 Ruff configuration is defined in `pyproject.toml` with the following settings:
+
 - Line length: 88 characters
 - Enabled rule sets: pycodestyle, pyflakes, isort, flake8-bugbear, comprehensions, pyupgrade
 - Import sorting configured for the `utils` package
@@ -137,16 +139,8 @@ Ruff configuration is defined in `pyproject.toml` with the following settings:
 
 ```
 PopWeight/
-├── data/                    # Data files directory
-│   ├── train.xlsx          # Training dataset (Excel)
-│   ├── test.xlsx           # Test dataset (Excel)
-│   ├── train.db            # Training SQLite database
-│   │   ├── train_data_raw          # Raw training data
-│   │   └── train_data_processed   # Preprocessed training data
-│   └── test.db             # Test SQLite database
-│       ├── test_data_raw           # Raw test data
-│       └── test_data_processed     # Preprocessed test data
-├── workflows/              # Workflow modules
+├── main.py                 # Main interactive menu (single entry point)
+├── workflows/              # All workflow modules (unified interface)
 │   ├── data_preparation.py # Data generation, splitting, import, preprocessing
 │   ├── training.py         # Model training workflow
 │   ├── validation.py       # Model validation workflow
@@ -161,14 +155,32 @@ PopWeight/
 │   └── correlation.py      # Correlation analysis
 ├── utils/                  # Utility functions
 │   ├── data_loader.py      # Excel file loading utilities
-│   ├── data_loading.py     # Data loading with progress
-│   ├── database.py         # SQLite database operations
+│   ├── data_loading.py    # Data loading with progress
+│   ├── database.py        # SQLite database operations
 │   ├── preprocessing.py   # Data preprocessing functions
 │   └── model_storage.py    # Model saving and loading
-├── main.py                 # Main interactive menu script
+├── data/                   # Data files directory
+│   ├── train.xlsx          # Training dataset (Excel)
+│   ├── test.xlsx           # Test dataset (Excel)
+│   ├── train.db            # Training SQLite database
+│   │   ├── train_data_raw          # Raw training data
+│   │   └── train_data_processed   # Preprocessed training data
+│   └── test.db             # Test SQLite database
+│       ├── test_data_raw           # Raw test data
+│       └── test_data_processed     # Preprocessed test data
+├── outputs/                # Generated outputs
+│   ├── training_results.db # Saved training results
+│   ├── gamma_heatmap.png   # Weight heatmap visualization
+│   ├── weights_facet_grid.png # Facet grid visualization
+│   ├── prediction_vs_actual.png # Validation visualization
+│   └── confusion_matrix.png # Classification metrics
 ├── requirements.txt        # Python dependencies
 └── pyproject.toml          # Project configuration (Ruff, etc.)
 ```
+
+**Note:** All operations are accessible through `main.py` interactive menu or by
+importing from the `workflows` package. Standalone script files have been removed
+in favor of the unified workflow system.
 
 ## 🚀 Quick Start
 
@@ -189,24 +201,27 @@ python main.py
 This will display a menu with all available operations. Follow the menu options
 in order for a complete workflow.
 
-### 3. Complete Workflow (Using Menu)
+### 3. Complete Workflow
 
-**Option A: Using the Interactive Menu**
+**Using the Interactive Menu (Recommended):**
 
 1. Run `python main.py`
-2. Select option 1: Generate Data (if you need synthetic data)
-3. Select option 2: Split Data (to split into train/test)
-4. Select option 3: Import Train
-5. Select option 4: Import Test
-6. Select option 5: Preprocess Train
-7. Select option 6: Preprocess Test
-8. Select option 7: Train (to learn weights)
-9. Select option 8: Test (to validate)
+2. Follow the menu options in order:
+   - **Option 1**: Generate Data (interactive prompt for sample count)
+   - **Option 2**: Split Data (interactive prompt for train percentage)
+   - **Option 3**: Import Train
+   - **Option 4**: Import Test
+   - **Option 5**: Preprocess Train
+   - **Option 6**: Preprocess Test
+   - **Option 7**: Train (to learn weights)
+   - **Option 8**: Test (to validate)
 
-**Option B: Using Workflows Programmatically**
+**Using Workflows Programmatically:**
 
 ```python
 from workflows import (
+    generate_data,
+    split_data,
     import_train_data,
     import_test_data,
     preprocess_train,
@@ -215,15 +230,13 @@ from workflows import (
     test_model,
 )
 
-# Import data
+# Complete pipeline
+generate_data()  # Interactive prompt for sample count
+split_data()  # Interactive prompt for train percentage
 import_train_data()
 import_test_data()
-
-# Preprocess data
 preprocess_train()
 preprocess_test()
-
-# Train and test
 train_model()
 test_model()
 ```
@@ -231,6 +244,7 @@ test_model()
 ### 4. Data Import and Preprocessing Details
 
 **Import Workflows:**
+
 - Load data from Excel files (`data/train.xlsx` and `data/test.xlsx`)
 - Save raw data to separate SQLite databases (`data/train.db` and `data/test.db`)
 - Create tables: `train_data_raw` and `test_data_raw`
@@ -238,6 +252,7 @@ test_model()
 - Create databases automatically if they don't exist
 
 **Preprocessing Workflows:**
+
 - Read from raw data tables (`train_data_raw` and `test_data_raw`)
 - Apply comprehensive preprocessing transformations
 - Filter to essential columns only
@@ -246,23 +261,28 @@ test_model()
 
 ## 📝 Workflow Usage Guide
 
-All data operations are now available through workflows. You can use them either
-through the interactive menu (`python main.py`) or by importing them programmatically.
+All operations are available through the unified workflow system. You can access
+them either through the interactive menu or by importing them programmatically.
 
-### Using Workflows via Menu
+### Using Workflows via Menu (Recommended)
 
-The recommended approach is to use the interactive menu:
+The easiest and recommended approach is to use the interactive menu:
 
 ```bash
 python main.py
 ```
 
-Then select the appropriate option from the menu. The menu is organized into
-logical sections for easy navigation.
+The menu provides:
+
+- **Organized sections**: Data Preparation, Analysis, Utilities
+- **Clear descriptions**: Each option explains what it does
+- **Interactive prompts**: For parameters like sample count and split percentage
+- **Progress indicators**: Visual feedback for long-running operations
+- **Error handling**: Clear error messages and recovery suggestions
 
 ### Using Workflows Programmatically
 
-All workflows can be imported and used in your own scripts:
+All workflows can be imported and used in your own Python scripts:
 
 ```python
 from workflows import (
@@ -279,17 +299,22 @@ from workflows import (
 )
 
 # Example: Complete data preparation pipeline
-generate_data(n_samples=10000)
-split_data()  # Interactive prompt
+generate_data()  # Interactive prompt for sample count
+split_data()  # Interactive prompt for train percentage
 import_train_data()
 import_test_data()
 preprocess_train()
 preprocess_test()
 ```
 
+**Note:** Some workflows (like `generate_data()` and `split_data()`) will prompt
+interactively for parameters if called without arguments. You can also provide
+parameters directly for programmatic use.
+
 ### Workflow Features
 
 **Data Import Workflows (`import_train_data`, `import_test_data`):**
+
 - Read from Excel files (`data/train.xlsx`, `data/test.xlsx`)
 - Save to SQLite databases (`data/train.db`, `data/test.db`)
 - Create tables: `train_data_raw`, `test_data_raw`
@@ -298,6 +323,7 @@ preprocess_test()
 - Automatic directory creation
 
 **Preprocessing Workflows (`preprocess_train`, `preprocess_test`):**
+
 - Read from raw data tables
 - Apply comprehensive preprocessing transformations
 - Filter to essential columns only
@@ -305,6 +331,7 @@ preprocess_test()
 - Detailed progress indicators
 
 **Preprocessing Steps Applied:**
+
 1. **Missing Value Handling**: Fills numerical columns with median, categorical with 'None'
 2. **Log-Log Normalization**: Applies `log(log(x + 1) + 1)` to Likes, Comments, Shares
 3. **Temporal Feature Extraction**: Extracts Hour_of_day, Day_of_week, Is_Weekend
@@ -314,6 +341,7 @@ preprocess_test()
 7. **Column Filtering**: Automatically filters to only essential columns
 
 **Essential Columns Kept:**
+
 - Grouping columns: `Platform`, `Post Type`
 - Feature columns: `Likes_log_log`, `Comments_log_log`, `Shares_log_log`
 - Target columns: `Reach_log`, `Engagement_Rate`
@@ -329,6 +357,7 @@ The project uses **4 separate tables** to maintain raw and processed data:
 ### Training Database (`data/train.db`)
 
 1. **`train_data_raw`** - Raw training data imported from Excel
+
    - Contains original columns from `data/train.xlsx`
    - No preprocessing applied
    - Created by: `workflows.data_preparation.import_train_data()` workflow
@@ -344,6 +373,7 @@ The project uses **4 separate tables** to maintain raw and processed data:
 ### Test Database (`data/test.db`)
 
 3. **`test_data_raw`** - Raw test data imported from Excel
+
    - Contains original columns from `data/test.xlsx`
    - No preprocessing applied
    - Created by: `workflows.data_preparation.import_test_data()` workflow
@@ -356,111 +386,12 @@ The project uses **4 separate tables** to maintain raw and processed data:
    - Created by: `workflows.data_preparation.preprocess_test()` workflow
    - Accessible via menu option 6 or programmatically
 
-## 🛠️ Database Utilities
+## 🛠️ Utilities and Analysis Modules
 
-The project includes utilities for working with SQLite databases in `utils/database.py`:
+For detailed documentation on utility functions and analysis modules, see:
 
-### Functions
-
-#### `save_to_sqlite(df, db_path, table_name, if_exists)`
-Save a pandas DataFrame to a SQLite database.
-
-**Parameters:**
-- `df`: pandas DataFrame to save
-- `db_path`: Path to SQLite database file
-- `table_name`: Name of the table (default: `"social_media_data"`)
-- `if_exists`: Behavior if table exists - `"fail"`, `"replace"`, or `"append"` (default: `"replace"`)
-
-**Example:**
-```python
-from utils import save_to_sqlite
-import pandas as pd
-
-df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
-save_to_sqlite(df, "data.db", table_name="my_table")
-```
-
-#### `read_from_sqlite(db_path, table_name, query)`
-Read data from a SQLite database into a pandas DataFrame.
-
-**Parameters:**
-- `db_path`: Path to SQLite database file
-- `table_name`: Name of the table to read (default: `"social_media_data"`)
-- `query`: Optional SQL query (if provided, `table_name` is ignored)
-
-**Example:**
-```python
-from utils import read_from_sqlite
-
-# Read entire table
-df = read_from_sqlite("data/train.db", table_name="train_data_raw")
-
-# Read processed data
-df = read_from_sqlite("data/train.db", table_name="train_data_processed")
-
-# Read with custom query
-df = read_from_sqlite(
-    "data/train.db",
-    query="SELECT * FROM train_data_raw WHERE Likes > 100"
-)
-```
-
-#### `list_tables(db_path)`
-List all tables in a SQLite database.
-
-**Example:**
-```python
-from utils import list_tables
-
-tables = list_tables("data/train.db")
-print(tables)  # ['train_data_raw', 'train_data_processed']
-```
-
-## 🔄 Data Preprocessing Pipeline
-
-The preprocessing pipeline in `utils/preprocessing.py` applies the following transformations:
-
-### 1. Missing Value Handling
-- **Numerical columns**: Filled with median value
-- **Categorical columns**: Filled with 'None'
-
-### 2. Log-Log Normalization
-Applies the formula `x' = log(log(x + 1) + 1)` to handle skewness in:
-- `Likes`
-- `Comments`
-- `Shares`
-
-Creates new columns: `Likes_log_log`, `Comments_log_log`, `Shares_log_log`
-
-### 3. Temporal Feature Extraction
-Extracts features from `Post Timestamp`:
-- `Hour_of_day`: Hour of the day (0-23)
-- `Day_of_week`: Day of the week (0=Monday, 6=Sunday)
-- `Is_Weekend`: Boolean (1 if Saturday/Sunday, 0 otherwise)
-
-### 4. One-Hot Encoding
-Encodes categorical variables:
-- `Platform`: Creates columns like `Platform_Facebook`, `Platform_Instagram`, etc.
-- `Post Type`: Creates columns like `Post_Type_Image`, `Post_Type_Video`, etc.
-- `Sentiment`: Creates columns like `Sentiment_Positive`, `Sentiment_Neutral`, etc.
-
-### 5. Feature Scaling
-- Applies `StandardScaler` to `Audience Age` (normalizes to mean=0, std=1)
-
-### 6. Target Variable Transformation
-- Applies log transformation to `Reach`: `Reach_log = log(Reach + 1)`
-
-### 7. Column Filtering
-After preprocessing, the pipeline automatically filters to only essential columns:
-- **Grouping columns**: `Platform`, `Post Type`
-- **Feature columns**: `Likes_log_log`, `Comments_log_log`, `Shares_log_log`
-- **Target columns**: `Reach_log`, `Engagement_Rate`
-- **Optional features**: `Engagement_Density` (if available)
-- **One-hot encoded columns**: All `Platform_*`, `Post_Type_*`, `Sentiment_*` columns
-
-This optimization reduces database size and improves query performance by removing unused columns like original engagement metrics, metadata (Post ID, Post Content, Post Timestamp), audience demographics, and temporal features that aren't used in the analysis.
-
-**Note:** Raw data is preserved in `*_data_raw` tables. Only processed tables are filtered.
+- **[Utils Documentation](utils/README.md)** - Database operations, data loading, preprocessing, and model storage utilities
+- **[Analysis Documentation](analysis/README.md)** - Model training, validation, visualization, insights, trend detection, and correlation analysis
 
 ## ⌨️ Interactive Menu Interface
 
@@ -478,6 +409,7 @@ This will display an interactive menu with all available operations organized
 into sections:
 
 **📊 Data Preparation:**
+
 - Generate Data - Create synthetic dataset
 - Split Data - Split base data into train/test
 - Import Train - Import training data to database
@@ -486,6 +418,7 @@ into sections:
 - Preprocess Test - Preprocess test data
 
 **🔬 Analysis:**
+
 - Train - Learn weights from training data
 - Test - Validate weights on test data
 - Correlation - Likes vs Reach
@@ -493,6 +426,7 @@ into sections:
 - Correlation - Shares vs Reach
 
 **🔍 Utilities:**
+
 - Diagnostics - Run validation diagnostics
 
 ### Workflow Modules
@@ -522,298 +456,33 @@ train_model()
 
 ## 🔄 Workflows Documentation
 
+For complete workflows documentation, see **[Workflows README](workflows/README.md)**.
+
 The `workflows/` package contains modular workflow functions for all major
 operations. Each workflow is self-contained and can be used independently.
 
-### Data Preparation Workflows (`workflows/data_preparation.py`)
-
-#### `generate_data(n_samples=None)`
-
-Generate a realistic synthetic social media engagement dataset.
-
-**Parameters:**
-- `n_samples` (int, optional): Number of samples to generate. If None (default),
-  prompts user interactively for the number of samples.
-
-**Features:**
-- Interactive prompt for number of samples (default: 30000 if Enter pressed)
-- Creates platform-specific engagement patterns
-- Generates realistic reach calculations based on engagement
-- Includes multiple platforms (Facebook, Instagram, Twitter, LinkedIn)
-- Supports different post types (Image, Video, Link)
-- Saves to `data/social_media_engagement_data.xlsx`
-- Progress bar showing generation progress
-
-**Usage:**
-```python
-from workflows import generate_data
-
-# Interactive mode (prompts for number of samples)
-generate_data()
-
-# Programmatic mode (specify number directly)
-generate_data(n_samples=10000)
-```
-
-**Interactive Prompt:**
-When called without parameters, the function will prompt:
-```
-Enter number of samples to generate (default: 30000, press Enter for default):
-```
-
-#### `split_data()`
-
-Split base data into train and test datasets with interactive percentage input.
-
-**Features:**
-- Interactive percentage input (0-100)
-- Shuffles data before splitting
-- Creates `data/train.xlsx` and `data/test.xlsx`
-- Confirmation prompt before overwriting existing files
-
-**Example:**
-```python
-from workflows import split_data
-
-split_data()  # Interactive prompt for train percentage
-```
-
-#### `import_train_data()`
-
-Import training data from Excel to SQLite database.
-
-**Features:**
-- Reads from `data/train.xlsx`
-- Saves to `data/train.db` (table: `train_data_raw`)
-- Progress indicators with tqdm
-- Error handling and validation
-
-**Example:**
-```python
-from workflows import import_train_data
-
-import_train_data()
-```
-
-#### `import_test_data()`
-
-Import test data from Excel to SQLite database.
-
-**Features:**
-- Reads from `data/test.xlsx`
-- Saves to `data/test.db` (table: `test_data_raw`)
-- Progress indicators with tqdm
-- Error handling and validation
-
-**Example:**
-```python
-from workflows import import_test_data
-
-import_test_data()
-```
-
-#### `preprocess_train()`
-
-Preprocess training data from SQLite database.
-
-**Features:**
-- Reads from `train_data_raw` table
-- Applies all preprocessing transformations
-- Filters to essential columns only
-- Saves to `train_data_processed` table
-- Detailed progress indicators
-
-**Preprocessing Steps:**
-1. Missing value handling
-2. Log-log normalization
-3. Temporal feature extraction
-4. One-hot encoding
-5. Feature scaling
-6. Target transformation
-7. Column filtering
-
-**Example:**
-```python
-from workflows import preprocess_train
-
-preprocess_train()
-```
-
-#### `preprocess_test()`
-
-Preprocess test data from SQLite database.
-
-**Features:**
-- Reads from `test_data_raw` table
-- Applies same preprocessing as training
-- Filters to essential columns only
-- Saves to `test_data_processed` table
-- Detailed progress indicators
-
-**Example:**
-```python
-from workflows import preprocess_test
-
-preprocess_test()
-```
-
-### Training Workflow (`workflows/training.py`)
-
-#### `train_model()`
-
-Complete training workflow for learning engagement weights.
-
-**Workflow Steps:**
-1. Loads preprocessed training data
-2. Trains Linear Regression and Random Forest models
-3. Compares models and selects best performing
-4. Generates visualizations (heatmaps, facet grids)
-5. Provides statistical insights
-6. Identifies trending posts
-7. Saves training results
-
-**Outputs:**
-- `outputs/gamma_heatmap.png` - Heatmap of engagement weights
-- `outputs/weights_facet_grid.png` - Facet grid visualization
-- `outputs/training_results.db` - Saved weights and models
-- `outputs/training_results.csv` - CSV export of results
-
-**Example:**
-```python
-from workflows import train_model
-
-train_model()
-```
-
-### Validation Workflow (`workflows/validation.py`)
-
-#### `test_model()`
-
-Complete validation workflow for testing learned weights.
-
-**Workflow Steps:**
-1. Loads training results (weights and models)
-2. Loads preprocessed test data
-3. Optionally loads training data for feature range validation
-4. Validates model performance on test set
-5. Generates validation visualizations
-6. Displays validation metrics
-
-**Outputs:**
-- `outputs/prediction_vs_actual.png` - Prediction vs actual scatter plot
-- `outputs/confusion_matrix.png` - Confusion matrix for classification
-
-**Example:**
-```python
-from workflows import test_model
-
-test_model()
-```
-
-### Correlation Workflows (`workflows/correlation.py`)
-
-#### `correlation_likes_reach()`
-
-Calculate and display correlation between Likes and Reach.
-
-**Features:**
-- Loads data from training database
-- Calculates Pearson correlation coefficient
-- Interprets correlation strength and direction
-- Displays statistical summaries
-
-**Example:**
-```python
-from workflows import correlation_likes_reach
-
-correlation_likes_reach()
-```
-
-#### `correlation_comments_reach()`
-
-Calculate and display correlation between Comments and Reach.
-
-**Example:**
-```python
-from workflows import correlation_comments_reach
-
-correlation_comments_reach()
-```
-
-#### `correlation_shares_reach()`
-
-Calculate and display correlation between Shares and Reach.
-
-**Example:**
-```python
-from workflows import correlation_shares_reach
-
-correlation_shares_reach()
-```
-
-### Diagnostics Workflow (`workflows/diagnostics.py`)
-
-#### `run_diagnostics()`
-
-Run diagnostic checks on training and test data.
-
-**Checks Performed:**
-- Platform-PostType coverage mismatches
-- Model performance issues
-- Feature range outliers
-- Missing weight mappings
-
-**Example:**
-```python
-from workflows import run_diagnostics
-
-run_diagnostics()
-```
-
-### Complete Workflow Example
-
-Here's a complete example of running all workflows in sequence:
-
-```python
-from workflows import (
-    generate_data,
-    split_data,
-    import_train_data,
-    import_test_data,
-    preprocess_train,
-    preprocess_test,
-    train_model,
-    test_model,
-    correlation_likes_reach,
-    run_diagnostics,
-)
-
-# 1. Generate synthetic data
-generate_data(n_samples=10000)
-
-# 2. Split into train/test (interactive)
-split_data()
-
-# 3. Import data to databases
-import_train_data()
-import_test_data()
-
-# 4. Preprocess data
-preprocess_train()
-preprocess_test()
-
-# 5. Train models
-train_model()
-
-# 6. Validate models
-test_model()
-
-# 7. Analyze correlations
-correlation_likes_reach()
-
-# 8. Run diagnostics
-run_diagnostics()
-```
+### Quick Reference
+
+**Data Preparation Workflows:**
+
+- `generate_data()` - Generate synthetic dataset (interactive prompt)
+- `split_data()` - Split data into train/test (interactive prompt)
+- `import_train_data()` - Import training data to database
+- `import_test_data()` - Import test data to database
+- `preprocess_train()` - Preprocess training data
+- `preprocess_test()` - Preprocess test data
+
+**Analysis Workflows:**
+
+- `train_model()` - Train models and learn weights
+- `test_model()` - Validate models on test data
+- `correlation_likes_reach()` - Analyze Likes vs Reach correlation
+- `correlation_comments_reach()` - Analyze Comments vs Reach correlation
+- `correlation_shares_reach()` - Analyze Shares vs Reach correlation
+- `run_diagnostics()` - Run diagnostic checks
+
+For detailed documentation with parameters, examples, and usage, see
+**[Workflows README](workflows/README.md)**.
 
 ## 🔍 Data Exploration & Analysis
 
@@ -828,6 +497,7 @@ python main.py
 The script provides an interactive menu with the following options:
 
 1. **Train** - Learn weights from training data
+
    - Performs cross-sectional analysis
    - Trains Linear Regression and Random Forest models
    - Generates visualizations (heatmaps, facet grids)
@@ -835,6 +505,7 @@ The script provides an interactive menu with the following options:
    - Saves training results
 
 2. **Test** - Validate weights on test data
+
    - Loads learned weights from training
    - Validates on test set
    - Generates prediction vs actual visualizations
@@ -842,11 +513,13 @@ The script provides an interactive menu with the following options:
    - Provides validation metrics
 
 3. **Correlation - Likes vs Reach**
+
    - Calculates Pearson correlation coefficient
    - Displays correlation strength and direction
    - Shows statistical summary for both metrics
 
 4. **Correlation - Comments vs Reach**
+
    - Calculates Pearson correlation coefficient
    - Displays correlation strength and direction
    - Shows statistical summary for both metrics
@@ -857,6 +530,7 @@ The script provides an interactive menu with the following options:
    - Shows statistical summary for both metrics
 
 **Correlation Analysis Features:**
+
 - Loads data from training database
 - Calculates correlation coefficient with interpretation
 - Provides statistical summaries (mean, std, min, max)
@@ -864,6 +538,7 @@ The script provides an interactive menu with the following options:
 - Indicates direction (positive/negative)
 
 **Example Output:**
+
 ```
 📊 CORRELATION ANALYSIS: Likes vs Reach
 ================================================================================
