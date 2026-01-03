@@ -146,21 +146,26 @@ PopWeight/
 │   └── test.db             # Test SQLite database
 │       ├── test_data_raw           # Raw test data
 │       └── test_data_processed     # Preprocessed test data
-├── commands/               # Command-line interface modules
-│   ├── import_excel.py     # Generic Excel import command
-│   ├── import_train.py     # Training data import command
-│   ├── import_test.py      # Test data import command
-│   ├── preprocess_train.py # Training data preprocessing command
-│   └── preprocess_test.py  # Test data preprocessing command
+├── workflows/              # Workflow modules
+│   ├── data_preparation.py # Data generation, splitting, import, preprocessing
+│   ├── training.py         # Model training workflow
+│   ├── validation.py       # Model validation workflow
+│   ├── correlation.py      # Correlation analysis workflows
+│   └── diagnostics.py      # Diagnostic tools
+├── analysis/               # Analysis modules
+│   ├── models.py           # Model training and weight extraction
+│   ├── validation.py       # Validation and metrics
+│   ├── visualizations.py   # Plotting and charts
+│   ├── insights.py         # Statistical insights
+│   ├── trend_detection.py  # Trending post detection
+│   └── correlation.py      # Correlation analysis
 ├── utils/                  # Utility functions
 │   ├── data_loader.py      # Excel file loading utilities
+│   ├── data_loading.py     # Data loading with progress
 │   ├── database.py         # SQLite database operations
-│   └── preprocessing.py    # Data preprocessing functions
-├── import_train.py         # Training data import script
-├── import_test.py          # Test data import script
-├── preprocess_train.py      # Training data preprocessing script
-├── preprocess_test.py       # Test data preprocessing script
-├── main.py                 # Main exploration script
+│   ├── preprocessing.py   # Data preprocessing functions
+│   └── model_storage.py    # Model saving and loading
+├── main.py                 # Main interactive menu script
 ├── requirements.txt        # Python dependencies
 └── pyproject.toml          # Project configuration (Ruff, etc.)
 ```
@@ -173,115 +178,140 @@ PopWeight/
 pip install -r requirements.txt
 ```
 
-### 2. Import Raw Data to Database
+### 2. Run the Interactive Menu
 
-Import training and test data from Excel files into SQLite databases:
+The easiest way to use the system is through the interactive menu:
 
 ```bash
-# Import training data (creates train_data_raw table)
-python import_train.py
-
-# Import test data (creates test_data_raw table)
-python import_test.py
+python main.py
 ```
 
-Both scripts will:
+This will display a menu with all available operations. Follow the menu options
+in order for a complete workflow.
+
+### 3. Complete Workflow (Using Menu)
+
+**Option A: Using the Interactive Menu**
+
+1. Run `python main.py`
+2. Select option 1: Generate Data (if you need synthetic data)
+3. Select option 2: Split Data (to split into train/test)
+4. Select option 3: Import Train
+5. Select option 4: Import Test
+6. Select option 5: Preprocess Train
+7. Select option 6: Preprocess Test
+8. Select option 7: Train (to learn weights)
+9. Select option 8: Test (to validate)
+
+**Option B: Using Workflows Programmatically**
+
+```python
+from workflows import (
+    import_train_data,
+    import_test_data,
+    preprocess_train,
+    preprocess_test,
+    train_model,
+    test_model,
+)
+
+# Import data
+import_train_data()
+import_test_data()
+
+# Preprocess data
+preprocess_train()
+preprocess_test()
+
+# Train and test
+train_model()
+test_model()
+```
+
+### 4. Data Import and Preprocessing Details
+
+**Import Workflows:**
 - Load data from Excel files (`data/train.xlsx` and `data/test.xlsx`)
 - Save raw data to separate SQLite databases (`data/train.db` and `data/test.db`)
 - Create tables: `train_data_raw` and `test_data_raw`
 - Display progress bars and detailed logging
 - Create databases automatically if they don't exist
 
-### 3. Preprocess Data
-
-Apply data preprocessing transformations to prepare data for modeling:
-
-```bash
-# Preprocess training data (creates train_data_processed table)
-python preprocess_train.py
-
-# Preprocess test data (creates test_data_processed table)
-python preprocess_test.py
-```
-
-The preprocessing scripts will:
+**Preprocessing Workflows:**
 - Read from raw data tables (`train_data_raw` and `test_data_raw`)
 - Apply comprehensive preprocessing transformations
+- Filter to essential columns only
 - Save processed data to separate tables (`train_data_processed` and `test_data_processed`)
 - Display detailed progress and transformation summaries
 
-## 📝 Data Import Scripts
+## 📝 Workflow Usage Guide
 
-### Import Training Data (`import_train.py`)
+All data operations are now available through workflows. You can use them either
+through the interactive menu (`python main.py`) or by importing them programmatically.
 
-Simple script to import raw training data from Excel to SQLite.
+### Using Workflows via Menu
 
-**Usage:**
+The recommended approach is to use the interactive menu:
+
 ```bash
-python import_train.py
+python main.py
 ```
 
-**Features:**
-- Reads from: `data/train.xlsx`
-- Saves to: `data/train.db` (table: `train_data_raw`)
-- Beautiful progress bars with `tqdm`
+Then select the appropriate option from the menu. The menu is organized into
+logical sections for easy navigation.
+
+### Using Workflows Programmatically
+
+All workflows can be imported and used in your own scripts:
+
+```python
+from workflows import (
+    generate_data,
+    split_data,
+    import_train_data,
+    import_test_data,
+    preprocess_train,
+    preprocess_test,
+    train_model,
+    test_model,
+    correlation_likes_reach,
+    run_diagnostics,
+)
+
+# Example: Complete data preparation pipeline
+generate_data(n_samples=10000)
+split_data()  # Interactive prompt
+import_train_data()
+import_test_data()
+preprocess_train()
+preprocess_test()
+```
+
+### Workflow Features
+
+**Data Import Workflows (`import_train_data`, `import_test_data`):**
+- Read from Excel files (`data/train.xlsx`, `data/test.xlsx`)
+- Save to SQLite databases (`data/train.db`, `data/test.db`)
+- Create tables: `train_data_raw`, `test_data_raw`
+- Progress bars with `tqdm`
 - Detailed logging and error handling
 - Automatic directory creation
 
-**Output:**
-- Progress indicators for reading Excel and writing to database
-- Summary of loaded data (rows, columns, column preview)
-- Success confirmation with database location
+**Preprocessing Workflows (`preprocess_train`, `preprocess_test`):**
+- Read from raw data tables
+- Apply comprehensive preprocessing transformations
+- Filter to essential columns only
+- Save to processed tables
+- Detailed progress indicators
 
-### Import Test Data (`import_test.py`)
-
-Simple script to import raw test data from Excel to SQLite.
-
-**Usage:**
-```bash
-python import_test.py
-```
-
-**Features:**
-- Reads from: `data/test.xlsx`
-- Saves to: `data/test.db` (table: `test_data_raw`)
-- Same beautiful UI and progress tracking as training script
-- Separate database to keep train/test data isolated
-
-## 🔧 Data Preprocessing Scripts
-
-### Preprocess Training Data (`preprocess_train.py`)
-
-Applies comprehensive data preprocessing transformations to training data.
-
-**Usage:**
-```bash
-python preprocess_train.py
-```
-
-**Features:**
-- Reads from: `data/train.db` (table: `train_data_raw`)
-- Saves to: `data/train.db` (table: `train_data_processed`)
-- Applies all preprocessing transformations (see below)
-- Beautiful progress bars and step-by-step indicators
-- Detailed transformation summaries
-
-**Preprocessing Steps:**
+**Preprocessing Steps Applied:**
 1. **Missing Value Handling**: Fills numerical columns with median, categorical with 'None'
 2. **Log-Log Normalization**: Applies `log(log(x + 1) + 1)` to Likes, Comments, Shares
-3. **Temporal Feature Extraction**: Extracts Hour_of_day, Day_of_week, Is_Weekend from Post Timestamp
+3. **Temporal Feature Extraction**: Extracts Hour_of_day, Day_of_week, Is_Weekend
 4. **One-Hot Encoding**: Encodes Platform, Post Type, and Sentiment
 5. **Feature Scaling**: Applies StandardScaler to Audience Age
-6. **Target Transformation**: Applies log transformation to Reach (target variable)
-7. **Column Filtering**: Automatically filters to only essential columns needed for analysis
-
-**Output:**
-- Progress indicators for each preprocessing step
-- Summary of original vs processed data (rows, columns)
-- Number of new columns added
-- Number of columns removed (unused columns filtered out)
-- List of essential columns kept
-- Success confirmation with database location
+6. **Target Transformation**: Applies log transformation to Reach
+7. **Column Filtering**: Automatically filters to only essential columns
 
 **Essential Columns Kept:**
 - Grouping columns: `Platform`, `Post Type`
@@ -289,21 +319,6 @@ python preprocess_train.py
 - Target columns: `Reach_log`, `Engagement_Rate`
 - Optional features: `Engagement_Density`
 - One-hot encoded columns: `Platform_*`, `Post_Type_*`, `Sentiment_*`
-
-### Preprocess Test Data (`preprocess_test.py`)
-
-Applies the same preprocessing transformations to test data.
-
-**Usage:**
-```bash
-python preprocess_test.py
-```
-
-**Features:**
-- Reads from: `data/test.db` (table: `test_data_raw`)
-- Saves to: `data/test.db` (table: `test_data_processed`)
-- Same preprocessing pipeline as training data
-- Beautiful UI and progress tracking
 
 **Note:** The preprocessing pipeline ensures consistency between training and test data transformations.
 
@@ -316,26 +331,30 @@ The project uses **4 separate tables** to maintain raw and processed data:
 1. **`train_data_raw`** - Raw training data imported from Excel
    - Contains original columns from `data/train.xlsx`
    - No preprocessing applied
-   - Created by: `import_train.py`
+   - Created by: `workflows.data_preparation.import_train_data()` workflow
+   - Accessible via menu option 3 or programmatically
 
 2. **`train_data_processed`** - Preprocessed training data
    - Contains only essential columns needed for analysis
    - All preprocessing transformations applied
    - Unused columns automatically filtered out for efficiency
-   - Created by: `preprocess_train.py`
+   - Created by: `workflows.data_preparation.preprocess_train()` workflow
+   - Accessible via menu option 5 or programmatically
 
 ### Test Database (`data/test.db`)
 
 3. **`test_data_raw`** - Raw test data imported from Excel
    - Contains original columns from `data/test.xlsx`
    - No preprocessing applied
-   - Created by: `import_test.py`
+   - Created by: `workflows.data_preparation.import_test_data()` workflow
+   - Accessible via menu option 4 or programmatically
 
 4. **`test_data_processed`** - Preprocessed test data
    - Contains only essential columns needed for analysis
    - All preprocessing transformations applied
    - Unused columns automatically filtered out for efficiency
-   - Created by: `preprocess_test.py`
+   - Created by: `workflows.data_preparation.preprocess_test()` workflow
+   - Accessible via menu option 6 or programmatically
 
 ## 🛠️ Database Utilities
 
@@ -443,106 +462,357 @@ This optimization reduces database size and improves query performance by removi
 
 **Note:** Raw data is preserved in `*_data_raw` tables. Only processed tables are filtered.
 
-## ⌨️ Command-Line Interface
+## ⌨️ Interactive Menu Interface
 
-The project includes command-line commands for data import operations:
+The project provides an interactive menu-driven interface through `main.py` that
+consolidates all operations in one place. All workflows are accessible through
+the main menu, making it easy to perform data preparation, analysis, and diagnostics.
 
-### Available Commands
+### Running the Main Menu
 
-#### `import-train`
-Import raw training data from Excel to SQLite database.
-
-**Usage:**
 ```bash
-# Using default paths (data/train.xlsx -> data/train.db)
-python -m commands.import_train
-
-# With custom paths
-python -m commands.import_train --excel data/train.xlsx --db data/train.db
-
-# With custom table name
-python -m commands.import_train --table my_train_table
-
-# Append to existing table
-python -m commands.import_train --if-exists append
+python main.py
 ```
 
-**Options:**
-- `--excel`: Path to Excel file (default: `data/train.xlsx`)
-- `--db`: Path to database file (default: `data/train.db`)
-- `--table`: Table name (default: `train_data_raw`)
-- `--sheet`: Excel sheet name/index (default: first sheet)
-- `--if-exists`: Behavior if table exists - `fail`, `replace`, or `append` (default: `replace`)
+This will display an interactive menu with all available operations organized
+into sections:
 
-#### `import-test`
-Import raw test data from Excel to SQLite database.
+**📊 Data Preparation:**
+- Generate Data - Create synthetic dataset
+- Split Data - Split base data into train/test
+- Import Train - Import training data to database
+- Import Test - Import test data to database
+- Preprocess Train - Preprocess training data
+- Preprocess Test - Preprocess test data
 
-**Usage:**
-```bash
-# Using default paths (data/test.xlsx -> data/test.db)
-python -m commands.import_test
+**🔬 Analysis:**
+- Train - Learn weights from training data
+- Test - Validate weights on test data
+- Correlation - Likes vs Reach
+- Correlation - Comments vs Reach
+- Correlation - Shares vs Reach
 
-# With custom paths
-python -m commands.import_test --excel data/test.xlsx --db data/test.db
+**🔍 Utilities:**
+- Diagnostics - Run validation diagnostics
+
+### Workflow Modules
+
+All workflows are implemented as modules in the `workflows/` package and can
+also be imported and used programmatically:
+
+```python
+from workflows import (
+    generate_data,
+    split_data,
+    import_train_data,
+    import_test_data,
+    preprocess_train,
+    preprocess_test,
+    train_model,
+    test_model,
+    run_diagnostics,
+)
+
+# Use workflows programmatically
+generate_data(n_samples=10000)
+import_train_data()
+preprocess_train()
+train_model()
 ```
 
-**Options:** Same as `import-train` command (default table: `test_data_raw`)
+## 🔄 Workflows Documentation
 
-#### `preprocess-train`
+The `workflows/` package contains modular workflow functions for all major
+operations. Each workflow is self-contained and can be used independently.
+
+### Data Preparation Workflows (`workflows/data_preparation.py`)
+
+#### `generate_data(n_samples=None)`
+
+Generate a realistic synthetic social media engagement dataset.
+
+**Parameters:**
+- `n_samples` (int, optional): Number of samples to generate. If None (default),
+  prompts user interactively for the number of samples.
+
+**Features:**
+- Interactive prompt for number of samples (default: 30000 if Enter pressed)
+- Creates platform-specific engagement patterns
+- Generates realistic reach calculations based on engagement
+- Includes multiple platforms (Facebook, Instagram, Twitter, LinkedIn)
+- Supports different post types (Image, Video, Link)
+- Saves to `data/social_media_engagement_data.xlsx`
+- Progress bar showing generation progress
+
+**Usage:**
+```python
+from workflows import generate_data
+
+# Interactive mode (prompts for number of samples)
+generate_data()
+
+# Programmatic mode (specify number directly)
+generate_data(n_samples=10000)
+```
+
+**Interactive Prompt:**
+When called without parameters, the function will prompt:
+```
+Enter number of samples to generate (default: 30000, press Enter for default):
+```
+
+#### `split_data()`
+
+Split base data into train and test datasets with interactive percentage input.
+
+**Features:**
+- Interactive percentage input (0-100)
+- Shuffles data before splitting
+- Creates `data/train.xlsx` and `data/test.xlsx`
+- Confirmation prompt before overwriting existing files
+
+**Example:**
+```python
+from workflows import split_data
+
+split_data()  # Interactive prompt for train percentage
+```
+
+#### `import_train_data()`
+
+Import training data from Excel to SQLite database.
+
+**Features:**
+- Reads from `data/train.xlsx`
+- Saves to `data/train.db` (table: `train_data_raw`)
+- Progress indicators with tqdm
+- Error handling and validation
+
+**Example:**
+```python
+from workflows import import_train_data
+
+import_train_data()
+```
+
+#### `import_test_data()`
+
+Import test data from Excel to SQLite database.
+
+**Features:**
+- Reads from `data/test.xlsx`
+- Saves to `data/test.db` (table: `test_data_raw`)
+- Progress indicators with tqdm
+- Error handling and validation
+
+**Example:**
+```python
+from workflows import import_test_data
+
+import_test_data()
+```
+
+#### `preprocess_train()`
+
 Preprocess training data from SQLite database.
 
-**Usage:**
-```bash
-# Using default paths
-python -m commands.preprocess_train
+**Features:**
+- Reads from `train_data_raw` table
+- Applies all preprocessing transformations
+- Filters to essential columns only
+- Saves to `train_data_processed` table
+- Detailed progress indicators
 
-# With custom paths
-python -m commands.preprocess_train --db data/train.db --table train_data_raw
+**Preprocessing Steps:**
+1. Missing value handling
+2. Log-log normalization
+3. Temporal feature extraction
+4. One-hot encoding
+5. Feature scaling
+6. Target transformation
+7. Column filtering
+
+**Example:**
+```python
+from workflows import preprocess_train
+
+preprocess_train()
 ```
 
-**Options:**
-- `--db`: Path to database file (default: `data/train.db`)
-- `--table`: Input table name (default: `train_data_raw`)
-- `--output-table`: Output table name (default: `train_data_processed`)
-- `--if-exists`: Behavior if output table exists (default: `replace`)
+#### `preprocess_test()`
 
-#### `preprocess-test`
 Preprocess test data from SQLite database.
 
-**Usage:**
-```bash
-# Using default paths
-python -m commands.preprocess_test
+**Features:**
+- Reads from `test_data_raw` table
+- Applies same preprocessing as training
+- Filters to essential columns only
+- Saves to `test_data_processed` table
+- Detailed progress indicators
 
-# With custom paths
-python -m commands.preprocess_test --db data/test.db --table test_data_raw
+**Example:**
+```python
+from workflows import preprocess_test
+
+preprocess_test()
 ```
 
-**Options:** Same as `preprocess-train` command (defaults: `test_data_raw` → `test_data_processed`)
+### Training Workflow (`workflows/training.py`)
 
-#### `import-excel`
-Generic Excel import command (requires all parameters).
+#### `train_model()`
 
-**Usage:**
-```bash
-python -m commands.import_excel --excel data/file.xlsx --db data/database.db
+Complete training workflow for learning engagement weights.
+
+**Workflow Steps:**
+1. Loads preprocessed training data
+2. Trains Linear Regression and Random Forest models
+3. Compares models and selects best performing
+4. Generates visualizations (heatmaps, facet grids)
+5. Provides statistical insights
+6. Identifies trending posts
+7. Saves training results
+
+**Outputs:**
+- `outputs/gamma_heatmap.png` - Heatmap of engagement weights
+- `outputs/weights_facet_grid.png` - Facet grid visualization
+- `outputs/training_results.db` - Saved weights and models
+- `outputs/training_results.csv` - CSV export of results
+
+**Example:**
+```python
+from workflows import train_model
+
+train_model()
 ```
 
-**Options:**
-- `--excel`: Path to Excel file (required)
-- `--db`: Path to database file (required)
-- `--table`: Table name (default: `social_media_data`)
-- `--sheet`: Excel sheet name/index (default: first sheet)
-- `--if-exists`: Behavior if table exists (default: `replace`)
+### Validation Workflow (`workflows/validation.py`)
 
-### After Package Installation
+#### `test_model()`
 
-If you install the package, these commands are available directly:
+Complete validation workflow for testing learned weights.
 
-```bash
-import-train --excel data/train.xlsx --db data/train.db
-import-test --excel data/test.xlsx --db data/test.db
-import-excel --excel data/file.xlsx --db data/database.db
+**Workflow Steps:**
+1. Loads training results (weights and models)
+2. Loads preprocessed test data
+3. Optionally loads training data for feature range validation
+4. Validates model performance on test set
+5. Generates validation visualizations
+6. Displays validation metrics
+
+**Outputs:**
+- `outputs/prediction_vs_actual.png` - Prediction vs actual scatter plot
+- `outputs/confusion_matrix.png` - Confusion matrix for classification
+
+**Example:**
+```python
+from workflows import test_model
+
+test_model()
+```
+
+### Correlation Workflows (`workflows/correlation.py`)
+
+#### `correlation_likes_reach()`
+
+Calculate and display correlation between Likes and Reach.
+
+**Features:**
+- Loads data from training database
+- Calculates Pearson correlation coefficient
+- Interprets correlation strength and direction
+- Displays statistical summaries
+
+**Example:**
+```python
+from workflows import correlation_likes_reach
+
+correlation_likes_reach()
+```
+
+#### `correlation_comments_reach()`
+
+Calculate and display correlation between Comments and Reach.
+
+**Example:**
+```python
+from workflows import correlation_comments_reach
+
+correlation_comments_reach()
+```
+
+#### `correlation_shares_reach()`
+
+Calculate and display correlation between Shares and Reach.
+
+**Example:**
+```python
+from workflows import correlation_shares_reach
+
+correlation_shares_reach()
+```
+
+### Diagnostics Workflow (`workflows/diagnostics.py`)
+
+#### `run_diagnostics()`
+
+Run diagnostic checks on training and test data.
+
+**Checks Performed:**
+- Platform-PostType coverage mismatches
+- Model performance issues
+- Feature range outliers
+- Missing weight mappings
+
+**Example:**
+```python
+from workflows import run_diagnostics
+
+run_diagnostics()
+```
+
+### Complete Workflow Example
+
+Here's a complete example of running all workflows in sequence:
+
+```python
+from workflows import (
+    generate_data,
+    split_data,
+    import_train_data,
+    import_test_data,
+    preprocess_train,
+    preprocess_test,
+    train_model,
+    test_model,
+    correlation_likes_reach,
+    run_diagnostics,
+)
+
+# 1. Generate synthetic data
+generate_data(n_samples=10000)
+
+# 2. Split into train/test (interactive)
+split_data()
+
+# 3. Import data to databases
+import_train_data()
+import_test_data()
+
+# 4. Preprocess data
+preprocess_train()
+preprocess_test()
+
+# 5. Train models
+train_model()
+
+# 6. Validate models
+test_model()
+
+# 7. Analyze correlations
+correlation_likes_reach()
+
+# 8. Run diagnostics
+run_diagnostics()
 ```
 
 ## 🔍 Data Exploration & Analysis
