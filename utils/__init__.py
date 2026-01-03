@@ -4,6 +4,7 @@ from .data_loader import load_social_media_data
 from .database import list_tables, read_from_sqlite, save_to_sqlite
 from .model_storage import load_training_results, save_training_results
 from .preprocessing import (
+    filter_essential_columns,
     preprocess_data,
     preprocess_test_data,
     preprocess_train_data,
@@ -17,6 +18,7 @@ __all__ = [
     "preprocess_data",
     "preprocess_train_data",
     "preprocess_test_data",
+    "filter_essential_columns",
     "save_training_results",
     "load_training_results",
 ]

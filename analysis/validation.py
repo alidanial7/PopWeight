@@ -46,9 +46,10 @@ def diagnose_validation_issues(
     train_results_df: pd.DataFrame,
     test_df: pd.DataFrame,
     weights_df: pd.DataFrame,
+    verbose: bool = False,
 ) -> None:
     """
-    Print diagnostic information to identify validation issues.
+    Print concise diagnostic information to identify validation issues.
 
     Parameters
     ----------
@@ -58,7 +59,26 @@ def diagnose_validation_issues(
         Test DataFrame.
     weights_df : pd.DataFrame
         Weights DataFrame for prediction.
+    verbose : bool, default False
+        If True, shows detailed diagnostics.
     """
+    if not verbose:
+        # Concise summary only
+        test_combos = set(zip(test_df["Platform"], test_df["Post Type"], strict=False))
+        train_combos = set(
+            zip(weights_df["Platform"], weights_df["Post Type"], strict=False)
+        )
+        missing_combos = test_combos - train_combos
+
+        if "R_Squared" in train_results_df.columns:
+            mean_r2 = train_results_df["R_Squared"].mean()
+            print(
+                f"\n📊 Quick Check: {len(train_combos)} segments, "
+                f"Mean R²={mean_r2:.4f}, Missing={len(missing_combos)}"
+            )
+        return
+
+    # Full diagnostics (only if verbose=True)
     print("\n" + "=" * 80)
     print("🔍 VALIDATION DIAGNOSTICS")
     print("=" * 80)
@@ -72,100 +92,21 @@ def diagnose_validation_issues(
     )
     missing_combos = test_combos - train_combos
 
-    print(f"   Test combinations: {len(test_combos)}")
-    print(f"   Train combinations: {len(train_combos)}")
-    print(f"   Missing in training: {len(missing_combos)}")
+    print(
+        f"   Test: {len(test_combos)}, Train: {len(train_combos)}, "
+        f"Missing: {len(missing_combos)}"
+    )
 
     if missing_combos:
-        print("\n   ⚠️  Missing combinations (using default weights):")
-        for platform, post_type in list(missing_combos)[:5]:
-            count = len(
-                test_df[
-                    (test_df["Platform"] == platform)
-                    & (test_df["Post Type"] == post_type)
-                ]
-            )
-            print(f"      - {platform} + {post_type}: {count} posts")
-        if len(missing_combos) > 5:
-            print(f"      ... and {len(missing_combos) - 5} more")
+        print(f"   ⚠️  {len(missing_combos)} missing combinations")
 
-    # 2. Check feature statistics and compare train vs test scales
-    print("\n2. Feature Statistics (Train vs Test Scale Comparison):")
-    print("-" * 80)
-    feature_cols = ["Likes_log_log", "Comments_log_log", "Shares_log_log"]
-
-    for col in feature_cols:
-        if col in test_df.columns:
-            test_mean = test_df[col].mean()
-            test_std = test_df[col].std()
-            zero_count = (test_df[col] == 0).sum()
-            nan_count = test_df[col].isna().sum()
-            print(f"   {col}:")
-            print(f"      Test - Mean: {test_mean:.4f}, Std: {test_std:.4f}")
-            print(f"      Zeros: {zero_count}, NaNs: {nan_count}")
-
-    # 3. Check intercept values
-    print("\n3. Intercept Statistics:")
-    print("-" * 80)
-    if "Intercept" in weights_df.columns:
-        intercepts = weights_df["Intercept"]
-        print(f"   Mean intercept: {intercepts.mean():.4f}")
-        print(f"   Std intercept: {intercepts.std():.4f}")
-        print(f"   Min intercept: {intercepts.min():.4f}")
-        print(f"   Max intercept: {intercepts.max():.4f}")
-    else:
-        print("   ⚠️  No intercept column found (using 0.0)")
-
-    # 4. Check coefficient ranges
-    print("\n4. Coefficient Ranges:")
-    print("-" * 80)
-    if "Alpha_Raw" in weights_df.columns:
-        print(
-            f"   Alpha_Raw: [{weights_df['Alpha_Raw'].min():.4f}, "
-            f"{weights_df['Alpha_Raw'].max():.4f}]"
-        )
-        print(
-            f"   Beta_Raw: [{weights_df['Beta_Raw'].min():.4f}, "
-            f"{weights_df['Beta_Raw'].max():.4f}]"
-        )
-        print(
-            f"   Gamma_Raw: [{weights_df['Gamma_Raw'].min():.4f}, "
-            f"{weights_df['Gamma_Raw'].max():.4f}]"
-        )
-    else:
-        print("   ⚠️  Using normalized weights (may cause scale issues)")
-
-    # 5. Check training R² scores
-    print("\n5. Training Model Quality:")
-    print("-" * 80)
+    # 2. Training R² summary
     if "R_Squared" in train_results_df.columns:
         r2_scores = train_results_df["R_Squared"]
-        print(f"   Mean R²: {r2_scores.mean():.4f}")
-        print(f"   Min R²: {r2_scores.min():.4f}")
-        print(f"   Max R²: {r2_scores.max():.4f}")
-        print(f"   R² > 0.5: {(r2_scores > 0.5).sum()} / {len(r2_scores)} segments")
-        print(f"   R² > 0.3: {(r2_scores > 0.3).sum()} / {len(r2_scores)} segments")
-
-    # 6. Check prediction vs actual scale (if predictions exist)
-    if "Predicted_Engagement_Score" in test_df.columns:
-        print("\n6. Prediction Scale Analysis:")
-        print("-" * 80)
-        actual_mean = test_df["Reach_log"].mean()
-        pred_mean = test_df["Predicted_Engagement_Score"].mean()
-        actual_std = test_df["Reach_log"].std()
-        pred_std = test_df["Predicted_Engagement_Score"].std()
-
-        print(f"   Actual Reach_log - Mean: {actual_mean:.4f}, Std: {actual_std:.4f}")
-        print(f"   Predicted Score - Mean: {pred_mean:.4f}, Std: {pred_std:.4f}")
-        scale_ratio = pred_mean / (actual_mean + 1e-10)
-        std_ratio = pred_std / (actual_std + 1e-10)
-        print(f"   Scale Ratio: {scale_ratio:.4f}")
-        print(f"   Std Ratio: {std_ratio:.4f}")
-
-        if abs(scale_ratio - 1.0) > 0.5:
-            print("   ⚠️  WARNING: Significant scale mismatch detected!")
-        if abs(std_ratio - 1.0) > 0.5:
-            print("   ⚠️  WARNING: Significant variance mismatch detected!")
+        print(
+            f"\n2. Training Quality: Mean R²={r2_scores.mean():.4f}, "
+            f"Range=[{r2_scores.min():.4f}, {r2_scores.max():.4f}]"
+        )
 
     print("=" * 80 + "\n")
 
@@ -175,6 +116,7 @@ def check_feature_ranges(
     test_df: pd.DataFrame,
     feature_cols: list[str],
     clip_outliers: bool = True,
+    verbose: bool = False,
 ) -> pd.DataFrame:
     """
     Check feature ranges and clip outliers in test data.
@@ -189,6 +131,8 @@ def check_feature_ranges(
         List of feature column names.
     clip_outliers : bool, default True
         Whether to clip outliers to training range.
+    verbose : bool, default False
+        If True, shows detailed range information.
 
     Returns
     -------
@@ -197,34 +141,25 @@ def check_feature_ranges(
     """
     test_df = test_df.copy()
 
-    print("\n📊 Feature Range Check:")
-    print("-" * 80)
-
+    total_outliers = 0
     for col in feature_cols:
         if col not in train_df.columns or col not in test_df.columns:
             continue
 
         train_min = train_df[col].min()
         train_max = train_df[col].max()
-        test_min = test_df[col].min()
-        test_max = test_df[col].max()
 
         outliers_low = (test_df[col] < train_min).sum()
         outliers_high = (test_df[col] > train_max).sum()
-        total_outliers = outliers_low + outliers_high
+        total_outliers += outliers_low + outliers_high
 
-        print(f"  {col}:")
-        print(f"    Train range: [{train_min:.4f}, {train_max:.4f}]")
-        print(f"    Test range:  [{test_min:.4f}, {test_max:.4f}]")
-        print(
-            f"    Outliers: {total_outliers} ({outliers_low} low, {outliers_high} high)"
-        )
-
-        if clip_outliers and total_outliers > 0:
+        if clip_outliers and (outliers_low + outliers_high) > 0:
             test_df[col] = test_df[col].clip(lower=train_min, upper=train_max)
-            print("    ✓ Clipped to training range")
 
-    print("-" * 80)
+    if verbose and total_outliers > 0:
+        print(f"📊 Clipped {total_outliers} outliers to training range")
+    elif total_outliers > 0:
+        print(f"✓ Clipped {total_outliers} outliers")
 
     return test_df
 
@@ -271,6 +206,7 @@ def calculate_predicted_engagement_score(
     target_range: tuple[float, float] | None = None,
     calibrate: bool = False,
     actual_col: str | None = None,
+    models_dict: dict | None = None,
 ) -> pd.DataFrame:
     """
     Calculate predicted engagement score for test data using training weights.
@@ -319,7 +255,10 @@ def calculate_predicted_engagement_score(
         beta_col = "Beta_Comments"
         gamma_col = "Gamma_Shares"
 
-    # Apply weights to each row
+    # Check if we have Random Forest models
+    use_rf = models_dict is not None and len(models_dict) > 0
+
+    # Apply weights/models to each row
     for idx, row in df.iterrows():
         platform = row[platform_col]
         post_type = row[post_type_col]
@@ -332,20 +271,49 @@ def calculate_predicted_engagement_score(
 
         if len(weight_row) == 0:
             # Use default values if not found
-            alpha, beta, gamma, intercept = 0.33, 0.33, 0.34, 0.0
+            predicted_score = 0.0
         else:
-            alpha = weight_row.iloc[0][alpha_col]
-            beta = weight_row.iloc[0][beta_col]
-            gamma = weight_row.iloc[0][gamma_col]
-            intercept = weight_row.iloc[0].get("Intercept", 0.0)
+            model_type = weight_row.iloc[0].get("Model_Type", "linear")
 
-        # Calculate predicted score WITH intercept
-        predicted_score = (
-            intercept
-            + alpha * row["Likes_log_log"]
-            + beta * row["Comments_log_log"]
-            + gamma * row["Shares_log_log"]
-        )
+            if use_rf and model_type == "rf":
+                # Use Random Forest model for prediction
+                model_key = (platform, post_type)
+                if model_key in models_dict:
+                    # Prepare features
+                    rf_features = [
+                        "Likes_log_log",
+                        "Comments_log_log",
+                        "Shares_log_log",
+                    ]
+                    if "Engagement_Density" in df.columns:
+                        rf_features.append("Engagement_Density")
+
+                    X = row[rf_features].values.reshape(1, -1)
+                    predicted_score = models_dict[model_key].predict(X)[0]
+                else:
+                    # Fallback to linear formula
+                    alpha = weight_row.iloc[0][alpha_col]
+                    beta = weight_row.iloc[0][beta_col]
+                    gamma = weight_row.iloc[0][gamma_col]
+                    intercept = weight_row.iloc[0].get("Intercept", 0.0)
+                    predicted_score = (
+                        intercept
+                        + alpha * row["Likes_log_log"]
+                        + beta * row["Comments_log_log"]
+                        + gamma * row["Shares_log_log"]
+                    )
+            else:
+                # Use linear formula
+                alpha = weight_row.iloc[0][alpha_col]
+                beta = weight_row.iloc[0][beta_col]
+                gamma = weight_row.iloc[0][gamma_col]
+                intercept = weight_row.iloc[0].get("Intercept", 0.0)
+                predicted_score = (
+                    intercept
+                    + alpha * row["Likes_log_log"]
+                    + beta * row["Comments_log_log"]
+                    + gamma * row["Shares_log_log"]
+                )
 
         df.loc[idx, "Predicted_Engagement_Score"] = predicted_score
 
@@ -681,6 +649,7 @@ def print_prediction_samples(
     actual_col: str = "Reach_log",
     predicted_col: str = "Predicted_Engagement_Score",
     n_samples: int = 5,
+    verbose: bool = False,
 ) -> None:
     """
     Print sample predictions vs actual values for verification.
@@ -695,37 +664,40 @@ def print_prediction_samples(
         Name of predicted score column.
     n_samples : int, default 5
         Number of samples to print.
+    verbose : bool, default False
+        If True, shows detailed sample table.
     """
-    print("\n🔍 Prediction Verification (First 5 samples):")
-    print("-" * 80)
-    header = (
-        f"{'Index':<8} {'Actual':<12} {'Predicted':<12} "
-        f"{'Difference':<12} {'Error %':<10}"
-    )
-    print(header)
-    print("-" * 80)
-
     sample_df = df[[actual_col, predicted_col]].head(n_samples).copy()
     sample_df["Difference"] = sample_df[predicted_col] - sample_df[actual_col]
     sample_df["Error_Pct"] = (
         sample_df["Difference"].abs() / (sample_df[actual_col].abs() + 1e-10)
     ) * 100
 
-    for idx, row in sample_df.iterrows():
-        print(
-            f"{idx:<8} {row[actual_col]:<12.4f} {row[predicted_col]:<12.4f} "
-            f"{row['Difference']:<12.4f} {row['Error_Pct']:<10.2f}%"
-        )
-
-    print("-" * 80)
-    print(
-        f"\nMean Actual: {sample_df[actual_col].mean():.4f}, "
-        f"Mean Predicted: {sample_df[predicted_col].mean():.4f}"
-    )
     pred_mean = sample_df[predicted_col].mean()
     actual_mean = sample_df[actual_col].mean()
     scale_ratio = pred_mean / (actual_mean + 1e-10)
-    print(f"Scale Ratio: {scale_ratio:.4f}")
+
+    if verbose:
+        print("\n🔍 Prediction Verification (First 5 samples):")
+        print("-" * 80)
+        header = (
+            f"{'Index':<8} {'Actual':<12} {'Predicted':<12} "
+            f"{'Difference':<12} {'Error %':<10}"
+        )
+        print(header)
+        print("-" * 80)
+
+        for idx, row in sample_df.iterrows():
+            print(
+                f"{idx:<8} {row[actual_col]:<12.4f} {row[predicted_col]:<12.4f} "
+                f"{row['Difference']:<12.4f} {row['Error_Pct']:<10.2f}%"
+            )
+        print("-" * 80)
+
+    print(
+        f"\n📊 Scale Check: Actual={actual_mean:.4f}, "
+        f"Predicted={pred_mean:.4f}, Ratio={scale_ratio:.4f}"
+    )
 
 
 def validate_model(
@@ -734,6 +706,7 @@ def validate_model(
     train_df: pd.DataFrame | None = None,
     output_dir: Path | None = None,
     clip_outliers: bool = True,
+    rf_models: dict | None = None,
 ) -> dict[str, any]:
     """
     Perform complete model validation on test data.
@@ -750,6 +723,8 @@ def validate_model(
         Directory to save visualizations.
     clip_outliers : bool, default True
         Whether to clip outliers in test data to training range.
+    rf_models : dict, optional
+        Dictionary of Random Forest models for prediction.
 
     Returns
     -------
@@ -759,72 +734,62 @@ def validate_model(
     # Step 1: Load training weights
     weights_df = load_training_weights(train_results_df)
 
-    # Step 1.5: Run diagnostics
-    diagnose_validation_issues(train_results_df, test_df, weights_df)
+    # Step 1.5: Run concise diagnostics
+    diagnose_validation_issues(train_results_df, test_df, weights_df, verbose=False)
 
     # Step 2: Check feature ranges and clip outliers if training data provided
     feature_cols = ["Likes_log_log", "Comments_log_log", "Shares_log_log"]
 
-    # Diagnostic: Print feature scale comparison
-    print("\n📊 Feature Scale Comparison (Train vs Test):")
-    print("-" * 80)
+    # Check feature ranges and clip outliers
     if train_df is not None:
-        for col in feature_cols:
-            if col in train_df.columns and col in test_df.columns:
-                train_mean = train_df[col].mean()
-                test_mean = test_df[col].mean()
-                scale_ratio = test_mean / (train_mean + 1e-10)
-                print(
-                    f"  {col}: Train={train_mean:.4f}, "
-                    f"Test={test_mean:.4f}, Ratio={scale_ratio:.4f}"
-                )
-                if abs(scale_ratio - 1.0) > 0.2:
-                    print("    ⚠️  Scale mismatch detected!")
-        print("-" * 80)
-
-        # Aggressive clipping
         test_df = check_feature_ranges(
-            train_df, test_df, feature_cols, clip_outliers=True
+            train_df, test_df, feature_cols, clip_outliers=True, verbose=False
         )
-        print("✓ Feature clipping applied (aggressive mode)\n")
     else:
-        print("⚠️  No training data provided - skipping feature range check\n")
+        print("⚠️  No training data - skipping feature range check")
 
     # Step 3: Calculate predicted scores (with intercept)
-    # Get target range from test data
-    target_min = test_df["Reach_log"].quantile(0.01)  # 1st percentile
-    target_max = test_df["Reach_log"].quantile(0.99)  # 99th percentile
-    target_range = (target_min, target_max)
+    # Determine actual column based on model type
+    if "Target_Col" in train_results_df.columns:
+        target_col = train_results_df["Target_Col"].iloc[0]
+    else:
+        target_col = "Reach_log"
+
+    # Adjust target range if using Engagement_Rate
+    if target_col == "Engagement_Rate" and "Engagement_Rate" in test_df.columns:
+        target_min = test_df["Engagement_Rate"].quantile(0.01)
+        target_max = test_df["Engagement_Rate"].quantile(0.99)
+        target_range = (target_min, target_max)
+        actual_col = "Engagement_Rate"
+    else:
+        target_min = test_df["Reach_log"].quantile(0.01)
+        target_max = test_df["Reach_log"].quantile(0.99)
+        target_range = (target_min, target_max)
+        actual_col = "Reach_log"
 
     test_df = calculate_predicted_engagement_score(
         test_df,
         weights_df,
         target_range=target_range,
         calibrate=True,
-        actual_col="Reach_log",
+        actual_col=actual_col,
+        models_dict=rf_models,
     )
 
-    # Step 4: Print verification samples
-    print_prediction_samples(test_df)
+    # Step 4: Print verification samples (concise)
+    print_prediction_samples(test_df, verbose=False)
 
     # Step 5: Calculate regression metrics (includes Pearson correlation)
     regression_metrics = calculate_regression_metrics(test_df)
 
-    # Print correlation analysis
-    print("\n📈 Scale-Invariant Analysis:")
-    print("-" * 80)
+    # Print correlation analysis (concise)
     pearson_r = regression_metrics.get("Pearson_R", 0.0)
     r2 = regression_metrics["R_Squared"]
-    print(f"  Pearson Correlation (R): {pearson_r:.4f}")
-    print(f"  R² Score: {r2:.4f}")
-
+    print(f"\n📈 Correlation: R={pearson_r:.4f}, R²={r2:.4f}")
     if abs(pearson_r) > 0.3 and r2 < 0:
-        print("  ⚠️  High correlation but negative R² detected!")
-        print("  → This indicates correct weight direction but scale/intercept shift.")
-        print("  → Intercept recalibration has been applied.")
+        print("  ⚠️  Scale shift detected (recalibrated)")
     elif abs(pearson_r) < 0.1:
-        print("  ⚠️  Very low correlation - weights may not be predictive.")
-    print("-" * 80)
+        print("  ⚠️  Low correlation")
 
     # Step 6: Identify actual and predicted trending posts
     test_df = identify_trending_posts_by_score(test_df, "Reach_log", percentile=90.0)
@@ -899,11 +864,7 @@ def print_validation_results(validation_results: dict[str, any]) -> None:
     print(f"  • Total Actual Trending: {cls_metrics['Total_Actual_Trending']}")
     print(f"  • Correctly Identified: {cls_metrics['Correctly_Identified']}")
 
-    # Generalization Power Summary
-    print("\n" + "=" * 80)
-    print("🔬 GENERALIZATION POWER SUMMARY")
-    print("=" * 80)
-
+    # Generalization Power Summary (concise)
     r2 = reg_metrics["R_Squared"]
     accuracy_pct = cls_metrics["Accuracy_Percentage"]
 
@@ -925,29 +886,19 @@ def print_validation_results(validation_results: dict[str, any]) -> None:
     else:
         trend_assessment = "Poor"
 
-    print(f"\n📊 Regression Generalization: {r2_assessment}")
-    print(
-        f"   R² of {r2:.4f} indicates the learned weights explain "
-        f"{r2*100:.1f}% of variance in unseen test data."
-    )
-
-    print(f"\n🎯 Trend Detection Generalization: {trend_assessment}")
-    print(
-        f"   {accuracy_pct:.1f}% of actual trending posts were correctly "
-        f"identified using the learned weights."
-    )
-
     overall_assessment = (
         "Excellent"
         if r2 >= 0.7 and accuracy_pct >= 70
-        else (
-            "Good"
-            if r2 >= 0.5 and accuracy_pct >= 50
-            else "Moderate"
-            if r2 >= 0.3 and accuracy_pct >= 30
-            else "Needs Improvement"
-        )
+        else "Good"
+        if r2 >= 0.5 and accuracy_pct >= 50
+        else "Moderate"
+        if r2 >= 0.3 and accuracy_pct >= 30
+        else "Needs Improvement"
     )
 
-    print(f"\n✨ Overall Generalization Power: {overall_assessment}")
+    print(
+        f"\n🔬 Generalization: Regression={r2_assessment} (R²={r2:.4f}), "
+        f"Trend={trend_assessment} ({accuracy_pct:.1f}%), "
+        f"Overall={overall_assessment}"
+    )
     print("=" * 80 + "\n")

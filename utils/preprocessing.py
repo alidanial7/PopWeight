@@ -142,7 +142,23 @@ def preprocess_data(
         elif scaler is not None:
             df[[age_col]] = scaler.transform(df[[age_col]])
 
-    # Step 6: Target preparation with log transformation
+    # Step 6: Feature Engineering
+    # Create Engagement_Density = (Likes + Comments + Shares) / (Audience Age + 1)
+    if all(col in df.columns for col in ["Likes", "Comments", "Shares"]):
+        if "Audience Age" in df.columns:
+            df["Engagement_Density"] = (df["Likes"] + df["Comments"] + df["Shares"]) / (
+                df["Audience Age"] + 1
+            )
+        else:
+            # Fallback if Audience Age not available
+            df["Engagement_Density"] = df["Likes"] + df["Comments"] + df["Shares"]
+
+    # Create Engagement_Rate = Total Interactions / Reach
+    if all(col in df.columns for col in ["Likes", "Comments", "Shares", "Reach"]):
+        total_interactions = df["Likes"] + df["Comments"] + df["Shares"]
+        df["Engagement_Rate"] = total_interactions / (df["Reach"] + 1)
+
+    # Step 7: Target preparation with log transformation
     if target_col and target_col in df.columns:
         df[f"{target_col}_log"] = np.log(df[target_col] + 1)
 
@@ -190,3 +206,62 @@ def preprocess_test_data(
         df, target_col="Reach", fit_scaler=fit_scaler, scaler=scaler
     )
     return df_processed
+
+
+def filter_essential_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filter DataFrame to only include columns needed for analysis.
+
+    Keeps only:
+    - Platform and Post Type (for grouping)
+    - Log-log normalized engagement features
+    - Target variables (Reach_log, Engagement_Rate)
+    - Optional features (Engagement_Density)
+    - One-hot encoded categorical columns
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Preprocessed DataFrame with all columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with only essential columns.
+    """
+    df_filtered = df.copy()
+
+    # Essential columns to keep
+    essential_cols = []
+
+    # Grouping columns
+    if "Platform" in df_filtered.columns:
+        essential_cols.append("Platform")
+    if "Post Type" in df_filtered.columns:
+        essential_cols.append("Post Type")
+
+    # Feature columns (log-log normalized)
+    for col in ["Likes_log_log", "Comments_log_log", "Shares_log_log"]:
+        if col in df_filtered.columns:
+            essential_cols.append(col)
+
+    # Target columns
+    for col in ["Reach_log", "Engagement_Rate"]:
+        if col in df_filtered.columns:
+            essential_cols.append(col)
+
+    # Optional feature columns
+    if "Engagement_Density" in df_filtered.columns:
+        essential_cols.append("Engagement_Density")
+
+    # One-hot encoded columns (Platform_*, Post_Type_*, Sentiment_*)
+    one_hot_prefixes = ["Platform_", "Post_Type_", "Sentiment_"]
+    for col in df_filtered.columns:
+        if any(col.startswith(prefix) for prefix in one_hot_prefixes):
+            essential_cols.append(col)
+
+    # Keep only essential columns that exist
+    existing_cols = [col for col in essential_cols if col in df_filtered.columns]
+    df_filtered = df_filtered[existing_cols].copy()
+
+    return df_filtered

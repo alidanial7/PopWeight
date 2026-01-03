@@ -1,14 +1,16 @@
 """Cross-sectional analysis models for engagement weight extraction."""
 
 import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from tqdm import tqdm
 
 
-def train_segment_model(
+def train_segment_model_linear(
     df_segment: pd.DataFrame,
     min_samples: int = 10,
+    target_col: str = "Reach_log",
 ) -> tuple[LinearRegression, float, int] | None:
     """
     Train a Linear Regression model for a specific segment.
@@ -30,7 +32,6 @@ def train_segment_model(
 
     # Prepare features and target
     feature_cols = ["Likes_log_log", "Comments_log_log", "Shares_log_log"]
-    target_col = "Reach_log"
 
     # Check if all required columns exist
     missing_cols = [
@@ -44,6 +45,65 @@ def train_segment_model(
 
     # Train model
     model = LinearRegression()
+    model.fit(X, y)
+
+    # Calculate R-squared
+    y_pred = model.predict(X)
+    r2 = r2_score(y, y_pred)
+
+    return model, r2, len(df_segment)
+
+
+def train_segment_model_rf(
+    df_segment: pd.DataFrame,
+    min_samples: int = 10,
+    target_col: str = "Engagement_Rate",
+    n_estimators: int = 100,
+    random_state: int = 42,
+) -> tuple[RandomForestRegressor, float, int] | None:
+    """
+    Train a Random Forest Regressor for a specific segment.
+
+    Parameters
+    ----------
+    df_segment : pd.DataFrame
+        DataFrame containing data for a specific Platform-PostType segment.
+    min_samples : int, default 10
+        Minimum number of samples required to train a model.
+    target_col : str, default "Engagement_Rate"
+        Target column name.
+    n_estimators : int, default 100
+        Number of trees in the Random Forest.
+    random_state : int, default 42
+        Random state for reproducibility.
+
+    Returns
+    -------
+    tuple[RandomForestRegressor, float, int] | None
+        Tuple of (model, r2_score, n_samples) if successful, None otherwise.
+    """
+    if len(df_segment) < min_samples:
+        return None
+
+    # Prepare features (include Engagement_Density if available)
+    feature_cols = ["Likes_log_log", "Comments_log_log", "Shares_log_log"]
+    if "Engagement_Density" in df_segment.columns:
+        feature_cols.append("Engagement_Density")
+
+    # Check if all required columns exist
+    missing_cols = [
+        col for col in feature_cols + [target_col] if col not in df_segment.columns
+    ]
+    if missing_cols:
+        return None
+
+    X = df_segment[feature_cols].values
+    y = df_segment[target_col].values
+
+    # Train model
+    model = RandomForestRegressor(
+        n_estimators=n_estimators, random_state=random_state, n_jobs=-1
+    )
     model.fit(X, y)
 
     # Calculate R-squared
@@ -90,12 +150,14 @@ def analyze_engagement_weights(
     post_type_col: str = "Post Type",
     min_samples: int = 10,
     show_progress: bool = False,
-) -> pd.DataFrame:
+    model_type: str = "linear",
+    target_col: str = "Reach_log",
+) -> tuple[pd.DataFrame, dict | None]:
     """
     Perform cross-sectional analysis of engagement weights.
 
-    Trains separate Linear Regression models for each Platform-PostType
-    combination and extracts normalized weights.
+    Trains separate models (Linear Regression or Random Forest) for each
+    Platform-PostType combination and extracts normalized weights.
 
     Parameters
     ----------
@@ -109,14 +171,20 @@ def analyze_engagement_weights(
         Minimum number of samples required per segment.
     show_progress : bool, default False
         Whether to show progress bar during analysis.
+    model_type : str, default "linear"
+        Model type: "linear" for Linear Regression, "rf" for Random Forest.
+    target_col : str, default "Reach_log"
+        Target column name.
 
     Returns
     -------
-    pd.DataFrame
+    tuple[pd.DataFrame, dict | None]
         Results table with columns: Platform, Post Type, Alpha_Likes,
-        Beta_Comments, Gamma_Shares, R_Squared, N_Samples.
+        Beta_Comments, Gamma_Shares, R_Squared, N_Samples, Model_Type,
+        and optionally a dictionary of trained models (for RF).
     """
     results = []
+    models_dict = {}  # Store models for RF predictions
 
     # Get unique combinations
     platforms = df[platform_col].unique()
@@ -144,19 +212,39 @@ def analyze_engagement_weights(
         if len(df_segment) == 0:
             continue
 
-        # Train model
-        model_result = train_segment_model(df_segment, min_samples=min_samples)
+        # Train model based on model_type
+        if model_type == "rf":
+            model_result = train_segment_model_rf(
+                df_segment, min_samples=min_samples, target_col=target_col
+            )
+        else:
+            model_result = train_segment_model_linear(
+                df_segment, min_samples=min_samples, target_col=target_col
+            )
 
         if model_result is None:
             continue
 
         model, r2, n_samples = model_result
 
-        # Extract coefficients and intercept
-        alpha = model.coef_[0]  # Likes_log_log
-        beta = model.coef_[1]  # Comments_log_log
-        gamma = model.coef_[2]  # Shares_log_log
-        intercept = model.intercept_  # Bias term
+        # Extract weights based on model type
+        if model_type == "rf":
+            # Use feature importances from Random Forest
+            feature_importances = model.feature_importances_
+            # Feature order: Likes_log_log, Comments_log_log, Shares_log_log,
+            # [Engagement_Density]
+            alpha = feature_importances[0]  # Likes_log_log
+            beta = feature_importances[1]  # Comments_log_log
+            gamma = feature_importances[2]  # Shares_log_log
+            intercept = 0.0  # RF doesn't have explicit intercept
+            # Store model for prediction
+            models_dict[(platform, post_type)] = model
+        else:
+            # Linear Regression coefficients
+            alpha = model.coef_[0]  # Likes_log_log
+            beta = model.coef_[1]  # Comments_log_log
+            gamma = model.coef_[2]  # Shares_log_log
+            intercept = model.intercept_  # Bias term
 
         # Normalize weights (for display, but keep raw for prediction)
         alpha_norm, beta_norm, gamma_norm = normalize_weights(alpha, beta, gamma)
@@ -169,12 +257,14 @@ def analyze_engagement_weights(
                 "Alpha_Likes": alpha_norm,
                 "Beta_Comments": beta_norm,
                 "Gamma_Shares": gamma_norm,
-                "Alpha_Raw": alpha,  # Raw coefficient for prediction
-                "Beta_Raw": beta,  # Raw coefficient for prediction
-                "Gamma_Raw": gamma,  # Raw coefficient for prediction
-                "Intercept": intercept,  # Intercept for prediction
+                "Alpha_Raw": alpha,  # Raw coefficient/importance
+                "Beta_Raw": beta,  # Raw coefficient/importance
+                "Gamma_Raw": gamma,  # Raw coefficient/importance
+                "Intercept": intercept,  # Intercept (0 for RF)
                 "R_Squared": r2,
                 "N_Samples": n_samples,
+                "Model_Type": model_type,
+                "Target_Col": target_col,
             }
         )
 
@@ -182,7 +272,7 @@ def analyze_engagement_weights(
     results_df = pd.DataFrame(results)
 
     if len(results_df) == 0:
-        return pd.DataFrame(
+        empty_df = pd.DataFrame(
             columns=[
                 "Platform",
                 "Post Type",
@@ -193,8 +283,10 @@ def analyze_engagement_weights(
                 "N_Samples",
             ]
         )
+        return empty_df, None
 
-    return results_df
+    # Return models_dict only for RF, None for linear
+    return results_df, (models_dict if model_type == "rf" else None)
 
 
 def extract_weights_table(results_df: pd.DataFrame) -> pd.DataFrame:

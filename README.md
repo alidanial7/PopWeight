@@ -16,6 +16,8 @@ $$E = (\alpha \times \text{Likes}) + (\beta \times \text{Comments}) + (\gamma \t
 - **Log-Log Normalization:** Handles the high skewness of social media engagement data (inspired by DFW-PP).
 - **Comparison Engine:** Built-in benchmarking against fixed-weight baseline models.
 - **Context-Awareness:** Evaluates how weights change across different post types (Video vs. Image).
+- **Correlation Analysis:** Built-in correlation analysis between engagement metrics (Likes, Comments, Shares) and Reach.
+- **Optimized Storage:** Preprocessing automatically filters to only essential columns, reducing database size and improving performance.
 
 ## 📂 Dataset Overview: Social Media Engagement
 
@@ -271,12 +273,22 @@ python preprocess_train.py
 4. **One-Hot Encoding**: Encodes Platform, Post Type, and Sentiment
 5. **Feature Scaling**: Applies StandardScaler to Audience Age
 6. **Target Transformation**: Applies log transformation to Reach (target variable)
+7. **Column Filtering**: Automatically filters to only essential columns needed for analysis
 
 **Output:**
 - Progress indicators for each preprocessing step
 - Summary of original vs processed data (rows, columns)
 - Number of new columns added
+- Number of columns removed (unused columns filtered out)
+- List of essential columns kept
 - Success confirmation with database location
+
+**Essential Columns Kept:**
+- Grouping columns: `Platform`, `Post Type`
+- Feature columns: `Likes_log_log`, `Comments_log_log`, `Shares_log_log`
+- Target columns: `Reach_log`, `Engagement_Rate`
+- Optional features: `Engagement_Density`
+- One-hot encoded columns: `Platform_*`, `Post_Type_*`, `Sentiment_*`
 
 ### Preprocess Test Data (`preprocess_test.py`)
 
@@ -307,8 +319,9 @@ The project uses **4 separate tables** to maintain raw and processed data:
    - Created by: `import_train.py`
 
 2. **`train_data_processed`** - Preprocessed training data
-   - Contains all original columns plus new features
+   - Contains only essential columns needed for analysis
    - All preprocessing transformations applied
+   - Unused columns automatically filtered out for efficiency
    - Created by: `preprocess_train.py`
 
 ### Test Database (`data/test.db`)
@@ -319,8 +332,9 @@ The project uses **4 separate tables** to maintain raw and processed data:
    - Created by: `import_test.py`
 
 4. **`test_data_processed`** - Preprocessed test data
-   - Contains all original columns plus new features
+   - Contains only essential columns needed for analysis
    - All preprocessing transformations applied
+   - Unused columns automatically filtered out for efficiency
    - Created by: `preprocess_test.py`
 
 ## 🛠️ Database Utilities
@@ -417,7 +431,17 @@ Encodes categorical variables:
 ### 6. Target Variable Transformation
 - Applies log transformation to `Reach`: `Reach_log = log(Reach + 1)`
 
-**Note:** Original columns are preserved alongside new features, allowing you to reference both raw and processed data.
+### 7. Column Filtering
+After preprocessing, the pipeline automatically filters to only essential columns:
+- **Grouping columns**: `Platform`, `Post Type`
+- **Feature columns**: `Likes_log_log`, `Comments_log_log`, `Shares_log_log`
+- **Target columns**: `Reach_log`, `Engagement_Rate`
+- **Optional features**: `Engagement_Density` (if available)
+- **One-hot encoded columns**: All `Platform_*`, `Post_Type_*`, `Sentiment_*` columns
+
+This optimization reduces database size and improves query performance by removing unused columns like original engagement metrics, metadata (Post ID, Post Content, Post Timestamp), audience demographics, and temporal features that aren't used in the analysis.
+
+**Note:** Raw data is preserved in `*_data_raw` tables. Only processed tables are filtered.
 
 ## ⌨️ Command-Line Interface
 
@@ -521,18 +545,84 @@ import-test --excel data/test.xlsx --db data/test.db
 import-excel --excel data/file.xlsx --db data/database.db
 ```
 
-## 🔍 Data Exploration
+## 🔍 Data Exploration & Analysis
 
-Use `main.py` to explore the loaded data:
+Use `main.py` to explore the loaded data and perform analysis:
 
 ```bash
 python main.py
 ```
 
-This script will:
-- Load data from Excel
-- Display column information and data types
-- Save data to SQLite database
-- List tables in the database
-- Read data back from database
-- Show example queries
+### Main Menu Options
+
+The script provides an interactive menu with the following options:
+
+1. **Train** - Learn weights from training data
+   - Performs cross-sectional analysis
+   - Trains Linear Regression and Random Forest models
+   - Generates visualizations (heatmaps, facet grids)
+   - Identifies trending posts
+   - Saves training results
+
+2. **Test** - Validate weights on test data
+   - Loads learned weights from training
+   - Validates on test set
+   - Generates prediction vs actual visualizations
+   - Creates confusion matrices
+   - Provides validation metrics
+
+3. **Correlation - Likes vs Reach**
+   - Calculates Pearson correlation coefficient
+   - Displays correlation strength and direction
+   - Shows statistical summary for both metrics
+
+4. **Correlation - Comments vs Reach**
+   - Calculates Pearson correlation coefficient
+   - Displays correlation strength and direction
+   - Shows statistical summary for both metrics
+
+5. **Correlation - Shares vs Reach**
+   - Calculates Pearson correlation coefficient
+   - Displays correlation strength and direction
+   - Shows statistical summary for both metrics
+
+**Correlation Analysis Features:**
+- Loads data from training database
+- Calculates correlation coefficient with interpretation
+- Provides statistical summaries (mean, std, min, max)
+- Categorizes correlation strength (negligible, weak, moderate, strong, very strong)
+- Indicates direction (positive/negative)
+
+**Example Output:**
+```
+📊 CORRELATION ANALYSIS: Likes vs Reach
+================================================================================
+
+📖 Loading train data...
+✓ Loaded 999 rows × 18 columns
+
+🔍 Calculating correlation...
+
+--------------------------------------------------------------------------------
+CORRELATION RESULTS
+--------------------------------------------------------------------------------
+Column 1: Likes
+Column 2: Reach
+Correlation Coefficient: 0.8234
+Interpretation: very strong positive correlation
+
+--------------------------------------------------------------------------------
+STATISTICAL SUMMARY
+--------------------------------------------------------------------------------
+Likes:
+  Mean: 1250.45
+  Std:  2340.12
+  Min:  0.00
+  Max:  15000.00
+
+Reach:
+  Mean: 8500.23
+  Std:  12000.45
+  Min:  100.00
+  Max:  50000.00
+```

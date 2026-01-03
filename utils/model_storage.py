@@ -1,5 +1,6 @@
 """Utilities for saving and loading trained model results."""
 
+import pickle
 from pathlib import Path
 
 import pandas as pd
@@ -11,9 +12,10 @@ def save_training_results(
     results_df: pd.DataFrame,
     output_dir: Path,
     filename: str = "training_results",
+    models_dict: dict | None = None,
 ) -> Path:
     """
-    Save training results (weights) to file for later use.
+    Save training results (weights) and models to file for later use.
 
     Parameters
     ----------
@@ -23,11 +25,13 @@ def save_training_results(
         Directory to save results.
     filename : str, default "training_results"
         Base filename (without extension).
+    models_dict : dict, optional
+        Dictionary of trained models (for Random Forest).
 
     Returns
     -------
     Path
-        Path to saved file.
+        Path to saved CSV file.
     """
     output_dir.mkdir(exist_ok=True, parents=True)
 
@@ -44,13 +48,20 @@ def save_training_results(
         if_exists="replace",
     )
 
+    # Save models if provided (for Random Forest)
+    if models_dict is not None:
+        models_path = output_dir / f"{filename}_models.pkl"
+        with open(models_path, "wb") as f:
+            pickle.dump(models_dict, f)
+
     return csv_path
 
 
 def load_training_results(
     results_path: Path,
     from_db: bool = True,
-) -> pd.DataFrame:
+    load_models: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, dict | None]:
     """
     Load training results from file.
 
@@ -63,8 +74,8 @@ def load_training_results(
 
     Returns
     -------
-    pd.DataFrame
-        Training results DataFrame.
+    pd.DataFrame or tuple[pd.DataFrame, dict | None]
+        Training results DataFrame, and optionally models dictionary.
     """
     if from_db:
         if results_path.suffix == ".csv":
@@ -79,7 +90,9 @@ def load_training_results(
                 "Please run training mode first."
             )
 
-        return read_from_sqlite(db_path=str(db_path), table_name="training_results")
+        results_df = read_from_sqlite(
+            db_path=str(db_path), table_name="training_results"
+        )
     else:
         if not results_path.exists():
             raise FileNotFoundError(
@@ -87,4 +100,21 @@ def load_training_results(
                 "Please run training mode first."
             )
 
-        return pd.read_csv(results_path)
+        results_df = pd.read_csv(results_path)
+
+    # Load models if requested
+    models_dict = None
+    if load_models:
+        if results_path.suffix == ".csv":
+            models_path = results_path.parent / f"{results_path.stem}_models.pkl"
+        else:
+            models_path = results_path.parent / "training_results_models.pkl"
+
+        if models_path.exists():
+            with open(models_path, "rb") as f:
+                models_dict = pickle.load(f)
+
+    if load_models:
+        return results_df, models_dict
+    else:
+        return results_df

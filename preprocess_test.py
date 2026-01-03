@@ -7,6 +7,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from utils import (
+    filter_essential_columns,
     list_tables,
     preprocess_test_data,
     read_from_sqlite,
@@ -138,10 +139,28 @@ def main():
         print_error(f"Error preprocessing data: {e}")
         return
 
+    # Filter to only essential columns
+    print("🔍 Filtering to essential columns...")
+    try:
+        df_filtered = filter_essential_columns(df_processed)
+        print_success(
+            f"Filtered to {len(df_filtered.columns)} essential columns "
+            f"(removed {len(df_processed.columns) - len(df_filtered.columns)} "
+            f"unused columns)"
+        )
+        print(f"   Essential columns: {', '.join(df_filtered.columns[:10].tolist())}")
+        if len(df_filtered.columns) > 10:
+            print(f"   ... and {len(df_filtered.columns) - 10} more")
+        print()
+    except Exception as e:
+        print_error(f"Error filtering columns: {e}")
+        print_info("Saving all columns instead...")
+        df_filtered = df_processed
+
     # Save to database with progress
     print("💾 Saving preprocessed data to database...")
     try:
-        total_rows = len(df_processed)
+        total_rows = len(df_filtered)
 
         bar_format = (
             "{l_bar}{bar}| {n_fmt}/{total_fmt} " "[{elapsed}<{remaining}, {rate_fmt}]"
@@ -154,7 +173,7 @@ def main():
         ) as pbar:
             # Save to database
             save_to_sqlite(
-                df=df_processed,
+                df=df_filtered,
                 db_path=str(db_path),
                 table_name=output_table,
                 if_exists="replace",
@@ -163,7 +182,7 @@ def main():
             pbar.update(total_rows)
 
         print()
-        print_success(f"Saved {len(df_processed):,} rows to database")
+        print_success(f"Saved {len(df_filtered):,} rows to database")
         print_success(f"Database location: {db_path.absolute()}")
         print_success(f"Table name: {output_table}")
         print(f"\n{'=' * 70}")
