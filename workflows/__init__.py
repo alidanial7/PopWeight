@@ -13,8 +13,8 @@ from .correlation import (
     correlation_likes_reach,
     correlation_shares_reach,
 )
+from .data_generation import generate_data
 from .data_preparation import (
-    generate_data,
     import_test_data,
     import_train_data,
     preprocess_test,

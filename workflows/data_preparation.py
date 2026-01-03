@@ -8,8 +8,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 from tqdm import tqdm
 
 from utils import (
@@ -45,130 +43,6 @@ def _print_info(message: str) -> None:
     print(f"ℹ️  {message}")
 
 
-def _get_sample_count() -> int:
-    """
-    Get number of samples from user input.
-
-    Returns
-    -------
-    int
-        Number of samples to generate.
-    """
-    while True:
-        try:
-            count_str = input(
-                "\nEnter number of samples to generate "
-                "(default: 30000, press Enter for default): "
-            ).strip()
-
-            # Use default if empty
-            if not count_str:
-                return 30000
-
-            count = int(count_str)
-
-            if count > 0:
-                return count
-            else:
-                _print_error("Please enter a positive number")
-        except ValueError:
-            _print_error("Please enter a valid number")
-        except KeyboardInterrupt:
-            print("\n\n👋 Operation cancelled by user.")
-            raise
-
-
-def generate_data(n_samples: int | None = None) -> None:
-    """
-    Generate realistic synthetic social media engagement dataset.
-
-    If n_samples is not provided, prompts the user interactively for the
-    number of samples to generate.
-
-    Parameters
-    ----------
-    n_samples : int, optional
-        Number of samples to generate. If None, prompts user interactively.
-    """
-    _print_header("📊 Generating Synthetic Data")
-
-    project_root = Path(__file__).parent.parent
-    output_path = project_root / "data" / "social_media_engagement_data.xlsx"
-
-    # Get sample count interactively if not provided
-    if n_samples is None:
-        try:
-            n_samples = _get_sample_count()
-        except KeyboardInterrupt:
-            print("\n👋 Operation cancelled.")
-            return
-
-    _print_info(f"Generating {n_samples:,} samples...")
-
-    np.random.seed(42)
-
-    platforms = ["Facebook", "Instagram", "LinkedIn", "Twitter"]
-    post_types = ["Image", "Video", "Link"]
-    sentiments = ["Positive", "Negative", "Neutral"]
-
-    data = []
-
-    with tqdm(total=n_samples, desc="Creating samples") as pbar:
-        for _ in range(n_samples):
-            platform = np.random.choice(platforms)
-            post_type = np.random.choice(post_types)
-            sentiment = np.random.choice(sentiments)
-
-            likes = np.random.randint(50, 5000)
-            comments = np.random.randint(10, 1000)
-            shares = np.random.randint(5, 500)
-
-            # Platform-specific reach calculations
-            if platform == "Instagram":
-                base_reach = (likes * 1.5) + (comments * 2.0) + (shares * 1.2)
-            elif platform == "Twitter":
-                base_reach = (likes * 0.8) + (comments * 1.5) + (shares * 5.0)
-            elif platform == "LinkedIn":
-                base_reach = (likes * 1.0) + (comments * 6.0) + (shares * 2.5)
-            else:  # Facebook
-                base_reach = (likes * 1.2) + (comments * 2.5) + (shares * 2.0)
-
-            multiplier = 1.5 if post_type == "Video" else 1.0
-            noise = np.random.normal(1000, 500)
-
-            reach = int((base_reach * multiplier) + noise)
-            reach = max(500, reach)  # Minimum reach
-
-            # Impressions typically 1.2 to 2 times Reach
-            impressions = int(reach * np.random.uniform(1.1, 2.0))
-
-            data.append(
-                {
-                    "Platform": platform,
-                    "Post Type": post_type,
-                    "Sentiment": sentiment,
-                    "Likes": likes,
-                    "Comments": comments,
-                    "Shares": shares,
-                    "Reach": reach,
-                    "Impressions": impressions,
-                    "Audience Age": np.random.randint(18, 65),
-                    "Post Timestamp": "2025-01-01 10:00:00",
-                }
-            )
-            pbar.update(1)
-
-    df = pd.DataFrame(data)
-
-    # Save to Excel
-    output_path.parent.mkdir(exist_ok=True)
-    df.to_excel(output_path, index=False, engine="openpyxl")
-
-    _print_success(f"Dataset created: {len(df):,} rows × {len(df.columns)} columns")
-    _print_success(f"Saved to: {output_path}")
-    print(f"\n{'=' * 70}\n")
-
-
 def split_data() -> None:
     """Split base data into train and test datasets."""
     _print_header("📊 Data Splitting Tool")
@@ -190,9 +64,8 @@ def split_data() -> None:
     # Load base data
     print("📖 Loading base data...")
     try:
-        with tqdm(
-            total=100, desc="Reading Excel", bar_format="{l_bar}{bar}| {n_fmt}%"
-        ) as pbar:
+        bar_format = "{l_bar}{bar}| {n_fmt}%"
+        with tqdm(total=100, desc="Reading Excel", bar_format=bar_format) as pbar:
             for _ in range(0, 100, 20):
                 time.sleep(0.05)
                 pbar.update(20)
@@ -243,8 +116,10 @@ def split_data() -> None:
     train_df.to_excel(train_output, index=False, engine="openpyxl")
     test_df.to_excel(test_output, index=False, engine="openpyxl")
 
-    _print_success(f"Train set: {len(train_df):,} rows ({train_percentage:.1f}%)")
-    _print_success(f"Test set: {len(test_df):,} rows ({test_percentage:.1f}%)")
+    train_msg = f"Train set: {len(train_df):,} rows ({train_percentage:.1f}%)"
+    _print_success(train_msg)
+    test_msg = f"Test set: {len(test_df):,} rows ({test_percentage:.1f}%)"
+    _print_success(test_msg)
     print(f"\n{'=' * 70}\n")
 
 
@@ -268,9 +143,8 @@ def import_train_data() -> None:
     # Load from Excel
     print("📖 Loading data from Excel...")
     try:
-        with tqdm(
-            total=100, desc="Reading Excel", bar_format="{l_bar}{bar}| {n_fmt}%"
-        ) as pbar:
+        bar_format = "{l_bar}{bar}| {n_fmt}%"
+        with tqdm(total=100, desc="Reading Excel", bar_format=bar_format) as pbar:
             for _ in range(0, 100, 20):
                 time.sleep(0.05)
                 pbar.update(20)
@@ -313,9 +187,8 @@ def import_test_data() -> None:
     # Load from Excel
     print("📖 Loading data from Excel...")
     try:
-        with tqdm(
-            total=100, desc="Reading Excel", bar_format="{l_bar}{bar}| {n_fmt}%"
-        ) as pbar:
+        bar_format = "{l_bar}{bar}| {n_fmt}%"
+        with tqdm(total=100, desc="Reading Excel", bar_format=bar_format) as pbar:
             for _ in range(0, 100, 20):
                 time.sleep(0.05)
                 pbar.update(20)
@@ -394,7 +267,8 @@ def preprocess_train() -> None:
     print("🔍 Filtering to essential columns...")
     try:
         df_filtered = filter_essential_columns(df_processed)
-        _print_success(f"Filtered to {len(df_filtered.columns)} essential columns")
+        col_count = len(df_filtered.columns)
+        _print_success(f"Filtered to {col_count} essential columns")
     except Exception as e:
         _print_error(f"Error filtering columns: {e}")
         df_filtered = df_processed
@@ -465,7 +339,8 @@ def preprocess_test() -> None:
     print("🔍 Filtering to essential columns...")
     try:
         df_filtered = filter_essential_columns(df_processed)
-        _print_success(f"Filtered to {len(df_filtered.columns)} essential columns")
+        col_count = len(df_filtered.columns)
+        _print_success(f"Filtered to {col_count} essential columns")
     except Exception as e:
         _print_error(f"Error filtering columns: {e}")
         df_filtered = df_processed
