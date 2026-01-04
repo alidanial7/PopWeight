@@ -110,9 +110,6 @@ def _handle_menu_choice(choice: str) -> bool:
     # Execute action if valid choice
     if choice in menu_actions:
         menu_actions[choice]()
-        print("\n" + "-" * 80)
-        print("Returning to main menu...")
-        print("-" * 80)
         return True
 
     # Invalid choice
