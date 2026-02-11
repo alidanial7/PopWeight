@@ -1,573 +1,418 @@
-# Data-Driven Engagement Weighting for Content Popularity Prediction
+# Exposure-Aware Reach Estimation and Dynamic Engagement Weight Learning (Master/ISI-ready)
 
-This repository implements a novel framework for predicting social media popularity by **learning dynamic engagement weights** instead of using fixed formulas.
+## Goal (What this method achieves)
 
-## 📌 Research Motivation
+We want to do two things in a scientifically defensible way:
 
-In most social media studies, Engagement Rate (E) is calculated using a fixed linear combination:
-$E = \text{Likes} + \text{Comments} + \text{Shares}$
+1. **Estimate Reach** (how much a post is shown / exposed).
+2. **Learn data-driven engagement weights** (how important a Like vs. a Retweet is) **after removing exposure bias**.
+3. Make these weights **dynamic** (they can change with context like Hour or Klout).
 
-However, this assumes every interaction has equal value. This project proposes a data-driven approach where weights ($\alpha, \beta, \gamma$) are learned automatically to reflect the true importance of each interaction type:
-$$E = (\alpha \times \text{Likes}) + (\beta \times \text{Comments}) + (\gamma \times \text{Shares})$$
+This document explains the full pipeline step by step so that even a reader with limited ML background can follow it.
 
-## ✨ Key Features
+---
 
-- **Dynamic Weighting:** Automatically learns coefficients for Likes, Comments, and Shares.
-- **Log-Log Normalization:** Handles the high skewness of social media engagement data (inspired by DFW-PP).
-- **Comparison Engine:** Built-in benchmarking against fixed-weight baseline models.
-- **Context-Awareness:** Evaluates how weights change across different post types (Video vs. Image).
-- **Correlation Analysis:** Built-in correlation analysis between engagement metrics (Likes, Comments, Shares) and Reach.
-- **Optimized Storage:** Preprocessing automatically filters to only essential columns, reducing database size and improving performance.
+## 1) Why raw engagement cannot directly give you valid weights
 
-## 📂 Dataset Overview: Social Media Engagement
+On social media, large engagement can happen for two different reasons:
 
-This project utilizes the **Social Media Engagement Dataset** (`data/train.xlsx`), which provides a comprehensive collection of metrics for analyzing how users interact with content across various social platforms.
+- **High exposure**: the post was shown to many people (high Reach).
+- **High reaction strength**: people reacted strongly _given that they saw it_.
 
-### 📊 Feature Descriptions
+If we learn weights from raw Likes/Retweets without controlling exposure, we confuse the two mechanisms.
 
-The dataset consists of **18 columns**, which can be categorized into four main groups:
+Example:
 
-#### 1. Content Identification & Metadata
+- A celebrity tweet gets many Likes mainly because it was shown to many people.
+- A normal user tweet may get fewer Likes, but can be _very strong relative to its small exposure_.
 
-- **Platform:** The social media network where the post was published. The dataset includes posts from four major platforms: **Facebook**, **Instagram**, **Twitter**, and **LinkedIn**, providing a diverse cross-platform perspective on engagement patterns.
+So we must separate:
 
-- **Post ID:** A unique identifier (UUID format) for each individual post, enabling precise tracking and referencing of specific content pieces.
+- **Visibility / Exposure process** → determines Reach
+- **Reaction process** → determines Likes/Retweets _conditional on exposure_
 
-- **Post Type:** The format of the content. The dataset contains three main content types: **Image**, **Video**, and **Link** posts, allowing analysis of how different content formats drive engagement differently.
+This separation is the foundation of a defensible academic method.
 
-- **Post Content:** The actual text content, captions, or hashtags used in the post. This field contains the raw textual content that accompanies the media, which can be analyzed for sentiment, keywords, or content themes.
+---
 
-- **Post Timestamp:** The exact date and time when the content was uploaded. The dataset spans from **March 2021 to March 2024**, providing a three-year longitudinal view of social media engagement trends.
+## 2) Dataset columns and what each one is used for
 
-#### 2. Engagement & Performance Metrics (Target Variables)
+Your dataset columns:
 
-These metrics form the core of the popularity prediction task and are used to learn the optimal engagement weights:
+**Context at posting time**
 
-- **Likes:** Total number of "like" interactions received. This is the most common form of engagement and typically has the highest volume.
+- `Weekday`, `Hour`, `Day`, `Lang`, `LocationID`, `IsReshare`
 
-- **Comments:** Total number of user comments under the post. Comments represent deeper engagement as they require more user effort than likes.
+**Author information**
 
-- **Shares:** Number of times the post was reshared or retweeted. Shares indicate the highest level of engagement, as users are actively promoting the content to their own networks.
+- `Klout`, `UserID`
 
-- **Impressions:** Total number of times the post was displayed on users' screens (including multiple views by the same user). This metric reflects the potential audience size.
+**Content**
 
-- **Reach:** Total number of unique users who saw the post. Unlike impressions, reach counts each user only once, providing a measure of unique audience exposure.
+- `text`, `Sentiment`
 
-- **Engagement Rate:** A calculated metric representing the level of interaction relative to the audience size. This is typically computed as `(Likes + Comments + Shares) / Reach` or similar formulas, and serves as a normalized measure of content performance.
+**Observed outcomes**
 
-#### 3. Audience Demographics
+- `Reach`, `Likes`, `RetweetCount`
 
-These features describe the characteristics of the users who engaged with the content:
+We will use them in two stages:
 
-- **Audience Age:** The predominant age group (numerical value) of the users interacting with the content. This helps understand which demographic segments are most responsive to different types of posts.
+- **Stage A (Exposure model)**: estimate Reach from variables known at posting time.
+- **Stage B (Debiased popularity + weights)**: learn Like/Retweet weights using the exposure estimate.
 
-- **Audience Gender:** The primary gender distribution of the engaged audience. The dataset includes three categories: **Male**, **Female**, and **Other**, reflecting diverse audience compositions.
+---
 
-- **Audience Location:** Geographical data indicating where the majority of the audience is located. The dataset includes a wide range of countries and regions, from major markets to smaller nations, enabling geographic analysis of engagement patterns.
+# Stage A — Reach (Exposure) Estimation
 
-- **Audience Interests:** Categorized interests or keywords that describe the engaged users' preferences. These can include topics like technology, fashion, sports, or other thematic categories that help understand audience alignment with content.
+## A1) Definition and notation
 
-#### 4. Contextual & Marketing Data
+For each tweet \(i\):
 
-These optional fields provide additional context about the content's purpose and origin:
+- Observed reach: \(R_i\)
+- Observed likes: \(L_i\)
+- Observed retweets: \(T_i\)
 
-- **Campaign ID:** Identifier for specific marketing campaigns the post belongs to. This field links posts that are part of coordinated marketing efforts, allowing analysis of campaign-level performance.
+We interpret \(R_i\) as a proxy for **exposure** (how many users potentially saw the tweet).
 
-- **Sentiment:** The emotional tone of the content or user feedback. The dataset includes three sentiment categories: **Positive**, **Neutral**, and **Negative**, which can influence how audiences respond to content.
+Exposure is influenced by:
 
-- **Influencer ID:** Identifier for the content creator or influencer associated with the post. This field helps track performance across different creators and understand how creator characteristics impact engagement.
+- author authority (Klout)
+- time of posting
+- language
+- reshare status
+- platform ranking/algorithm
 
-### 📈 Data Characteristics
+**Stage A goal:** estimate the exposure that would be expected from _only pre-reaction information_.
 
-The dataset contains **999 social media posts** with **18 features** covering content metadata, engagement metrics, audience demographics, and contextual information. The data spans multiple platforms (Facebook, Instagram, Twitter, LinkedIn) and content types (Image, Video, Link), providing a comprehensive foundation for learning dynamic engagement weights that can adapt to different contexts.
+---
 
-**Data Structure:**
+## A2) Why log-transform Reach
 
-- **Numerical Features:** Engagement metrics (Likes, Comments, Shares, Impressions, Reach) and Audience Age are stored as integers, while Engagement Rate is a floating-point value.
-- **Categorical Features:** Platform, Post Type, Audience Gender, Sentiment, and other text-based fields are stored as strings/objects.
-- **Temporal Feature:** Post Timestamp is stored as a datetime object, enabling time-series analysis and temporal pattern detection.
+Reach is typically extremely skewed: many small values, few extremely large values.
 
-## 🔧 Development Guidelines
+To stabilize training we define:
 
-### Type Safety
+\[
+Z_i = \log(1 + R_i)
+\]
 
-- **Always use type hints** for function parameters, return types, and class attributes
-- Use `typing` module for complex types (e.g., `List`, `Dict`, `Optional`, `Union`)
-- Prefer type annotations over comments for type information
-- Use `mypy` or similar type checkers to validate type safety before committing
+Why \(+1\)?
 
-### Code Quality & Formatting
+- Because \(\log(0)\) is undefined.
 
-This project uses **[Ruff](https://docs.astral.sh/ruff/)** for linting and code formatting, integrated with **pre-commit** hooks to ensure consistent code quality.
-
-#### Setup
-
-1. Install dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. Install pre-commit hooks:
-   ```bash
-   pre-commit install
-   ```
-
-#### Usage
-
-- **Automatic**: Pre-commit hooks run automatically on every `git commit`, checking and fixing code issues
-- **Manual linting**: Run `ruff check .` to check for linting issues
-- **Manual formatting**: Run `ruff format .` to format code
-- **Check all files**: Run `pre-commit run --all-files` to check the entire codebase
-
-#### Configuration
-
-Ruff configuration is defined in `pyproject.toml` with the following settings:
-
-- Line length: 88 characters
-- Enabled rule sets: pycodestyle, pyflakes, isort, flake8-bugbear, comprehensions, pyupgrade
-- Import sorting configured for the `utils` package
-
-#### Common Ruff Errors to Avoid
-
-- **E501**: Line too long (>88 characters) - Break long lines into multiple lines
-- **B007**: Unused loop variable - Use `_` for unused loop variables
-- **F401**: Unused imports - Remove unused imports
-- Always run `ruff check .` before committing to catch these issues early
-
-## 📦 Project Structure
-
-```
-PopWeight/
-├── main.py                 # Main interactive menu (single entry point)
-├── workflows/              # All workflow modules (unified interface)
-│   ├── data_preparation.py # Data generation, splitting, import, preprocessing
-│   ├── training.py         # Model training workflow
-│   ├── validation.py       # Model validation workflow
-│   ├── correlation.py      # Correlation analysis workflows
-│   └── diagnostics.py      # Diagnostic tools
-├── analysis/               # Analysis modules
-│   ├── models.py           # Model training and weight extraction
-│   ├── validation.py       # Validation and metrics
-│   ├── visualizations.py   # Plotting and charts
-│   ├── insights.py         # Statistical insights
-│   ├── trend_detection.py  # Trending post detection
-│   └── correlation.py      # Correlation analysis
-├── utils/                  # Utility functions
-│   ├── data_loader.py      # Excel file loading utilities
-│   ├── data_loading.py    # Data loading with progress
-│   ├── database.py        # SQLite database operations
-│   ├── preprocessing.py   # Data preprocessing functions
-│   └── model_storage.py    # Model saving and loading
-├── data/                   # Data files directory
-│   ├── train.xlsx          # Training dataset (Excel)
-│   ├── test.xlsx           # Test dataset (Excel)
-│   ├── train.db            # Training SQLite database
-│   │   ├── train_data_raw          # Raw training data
-│   │   └── train_data_processed   # Preprocessed training data
-│   └── test.db             # Test SQLite database
-│       ├── test_data_raw           # Raw test data
-│       └── test_data_processed     # Preprocessed test data
-├── outputs/                # Generated outputs
-│   ├── training_results.db # Saved training results
-│   ├── gamma_heatmap.png   # Weight heatmap visualization
-│   ├── weights_facet_grid.png # Facet grid visualization
-│   ├── prediction_vs_actual.png # Validation visualization
-│   └── confusion_matrix.png # Classification metrics
-├── requirements.txt        # Python dependencies
-└── pyproject.toml          # Project configuration (Ruff, etc.)
-```
-
-**Note:** All operations are accessible through `main.py` interactive menu or by
-importing from the `workflows` package. Standalone script files have been removed
-in favor of the unified workflow system.
-
-## 🚀 Quick Start
-
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Run the Interactive Menu
-
-The easiest way to use the system is through the interactive menu:
-
-```bash
-python main.py
-```
-
-This will display a menu with all available operations. Follow the menu options
-in order for a complete workflow.
-
-### 3. Complete Workflow
-
-**Using the Interactive Menu (Recommended):**
-
-1. Run `python main.py`
-2. Follow the menu options in order:
-   - **Option 1**: Generate Data (interactive prompt for sample count)
-   - **Option 2**: Split Data (interactive prompt for train percentage)
-   - **Option 3**: Import Train
-   - **Option 4**: Import Test
-   - **Option 5**: Preprocess Train
-   - **Option 6**: Preprocess Test
-   - **Option 7**: Train (to learn weights)
-   - **Option 8**: Test (to validate)
-
-**Using Workflows Programmatically:**
-
-```python
-from workflows import (
-    generate_data,
-    split_data,
-    import_train_data,
-    import_test_data,
-    preprocess_train,
-    preprocess_test,
-    train_model,
-    test_model,
-)
-
-# Complete pipeline
-generate_data()  # Interactive prompt for sample count
-split_data()  # Interactive prompt for train percentage
-import_train_data()
-import_test_data()
-preprocess_train()
-preprocess_test()
-train_model()
-test_model()
-```
-
-### 4. Data Import and Preprocessing Details
-
-**Import Workflows:**
-
-- Load data from Excel files (`data/train.xlsx` and `data/test.xlsx`)
-- Save raw data to separate SQLite databases (`data/train.db` and `data/test.db`)
-- Create tables: `train_data_raw` and `test_data_raw`
-- Display progress bars and detailed logging
-- Create databases automatically if they don't exist
-
-**Preprocessing Workflows:**
-
-- Read from raw data tables (`train_data_raw` and `test_data_raw`)
-- Apply comprehensive preprocessing transformations
-- Filter to essential columns only
-- Save processed data to separate tables (`train_data_processed` and `test_data_processed`)
-- Display detailed progress and transformation summaries
-
-## 📝 Workflow Usage Guide
-
-All operations are available through the unified workflow system. You can access
-them either through the interactive menu or by importing them programmatically.
-
-### Using Workflows via Menu (Recommended)
-
-The easiest and recommended approach is to use the interactive menu:
-
-```bash
-python main.py
-```
-
-The menu provides:
-
-- **Organized sections**: Data Preparation, Analysis, Utilities
-- **Clear descriptions**: Each option explains what it does
-- **Interactive prompts**: For parameters like sample count and split percentage
-- **Progress indicators**: Visual feedback for long-running operations
-- **Error handling**: Clear error messages and recovery suggestions
-
-### Using Workflows Programmatically
-
-All workflows can be imported and used in your own Python scripts:
-
-```python
-from workflows import (
-    generate_data,
-    split_data,
-    import_train_data,
-    import_test_data,
-    preprocess_train,
-    preprocess_test,
-    train_model,
-    test_model,
-    correlation_likes_reach,
-    run_diagnostics,
-)
-
-# Example: Complete data preparation pipeline
-generate_data()  # Interactive prompt for sample count
-split_data()  # Interactive prompt for train percentage
-import_train_data()
-import_test_data()
-preprocess_train()
-preprocess_test()
-```
-
-**Note:** Some workflows (like `generate_data()` and `split_data()`) will prompt
-interactively for parameters if called without arguments. You can also provide
-parameters directly for programmatic use.
-
-### Workflow Features
-
-**Data Import Workflows (`import_train_data`, `import_test_data`):**
-
-- Read from Excel files (`data/train.xlsx`, `data/test.xlsx`)
-- Save to SQLite databases (`data/train.db`, `data/test.db`)
-- Create tables: `train_data_raw`, `test_data_raw`
-- Progress bars with `tqdm`
-- Detailed logging and error handling
-- Automatic directory creation
-
-**Preprocessing Workflows (`preprocess_train`, `preprocess_test`):**
-
-- Read from raw data tables
-- Apply comprehensive preprocessing transformations
-- Filter to essential columns only
-- Save to processed tables
-- Detailed progress indicators
-
-**Preprocessing Steps Applied:**
-
-1. **Missing Value Handling**: Fills numerical columns with median, categorical with 'None'
-2. **Log-Log Normalization**: Applies `log(log(x + 1) + 1)` to Likes, Comments, Shares
-3. **Temporal Feature Extraction**: Extracts Hour_of_day, Day_of_week, Is_Weekend
-4. **One-Hot Encoding**: Encodes Platform, Post Type, and Sentiment
-5. **Feature Scaling**: Applies StandardScaler to Audience Age
-6. **Target Transformation**: Applies log transformation to Reach
-7. **Column Filtering**: Automatically filters to only essential columns
-
-**Essential Columns Kept:**
-
-- Grouping columns: `Platform`, `Post Type`
-- Feature columns: `Likes_log_log`, `Comments_log_log`, `Shares_log_log`
-- Target columns: `Reach_log`, `Engagement_Rate`
-- Optional features: `Engagement_Density`
-- One-hot encoded columns: `Platform_*`, `Post_Type_*`, `Sentiment_*`
-
-**Note:** The preprocessing pipeline ensures consistency between training and test data transformations.
-
-## 🗄️ Database Structure
-
-The project uses **4 separate tables** to maintain raw and processed data:
-
-### Training Database (`data/train.db`)
-
-1. **`train_data_raw`** - Raw training data imported from Excel
-
-   - Contains original columns from `data/train.xlsx`
-   - No preprocessing applied
-   - Created by: `workflows.data_preparation.import_train_data()` workflow
-   - Accessible via menu option 3 or programmatically
-
-2. **`train_data_processed`** - Preprocessed training data
-   - Contains only essential columns needed for analysis
-   - All preprocessing transformations applied
-   - Unused columns automatically filtered out for efficiency
-   - Created by: `workflows.data_preparation.preprocess_train()` workflow
-   - Accessible via menu option 5 or programmatically
-
-### Test Database (`data/test.db`)
-
-3. **`test_data_raw`** - Raw test data imported from Excel
-
-   - Contains original columns from `data/test.xlsx`
-   - No preprocessing applied
-   - Created by: `workflows.data_preparation.import_test_data()` workflow
-   - Accessible via menu option 4 or programmatically
-
-4. **`test_data_processed`** - Preprocessed test data
-   - Contains only essential columns needed for analysis
-   - All preprocessing transformations applied
-   - Unused columns automatically filtered out for efficiency
-   - Created by: `workflows.data_preparation.preprocess_test()` workflow
-   - Accessible via menu option 6 or programmatically
-
-## 🛠️ Utilities and Analysis Modules
-
-For detailed documentation on utility functions and analysis modules, see:
-
-- **[Utils Documentation](utils/README.md)** - Database operations, data loading, preprocessing, and model storage utilities
-- **[Analysis Documentation](analysis/README.md)** - Model training, validation, visualization, insights, trend detection, and correlation analysis
-
-## ⌨️ Interactive Menu Interface
-
-The project provides an interactive menu-driven interface through `main.py` that
-consolidates all operations in one place. All workflows are accessible through
-the main menu, making it easy to perform data preparation, analysis, and diagnostics.
-
-### Running the Main Menu
-
-```bash
-python main.py
-```
-
-This will display an interactive menu with all available operations organized
-into sections:
-
-**📊 Data Preparation:**
-
-- Generate Data - Create synthetic dataset
-- Split Data - Split base data into train/test
-- Import Train - Import training data to database
-- Import Test - Import test data to database
-- Preprocess Train - Preprocess training data
-- Preprocess Test - Preprocess test data
-
-**🔬 Analysis:**
-
-- Train - Learn weights from training data
-- Test - Validate weights on test data
-- Correlation - Likes vs Reach
-- Correlation - Comments vs Reach
-- Correlation - Shares vs Reach
-
-**🔍 Utilities:**
-
-- Diagnostics - Run validation diagnostics
-
-### Workflow Modules
-
-All workflows are implemented as modules in the `workflows/` package and can
-also be imported and used programmatically:
-
-```python
-from workflows import (
-    generate_data,
-    split_data,
-    import_train_data,
-    import_test_data,
-    preprocess_train,
-    preprocess_test,
-    train_model,
-    test_model,
-    run_diagnostics,
-)
-
-# Use workflows programmatically
-generate_data(n_samples=10000)
-import_train_data()
-preprocess_train()
-train_model()
-```
-
-## 🔄 Workflows Documentation
-
-For complete workflows documentation, see **[Workflows README](workflows/README.md)**.
-
-The `workflows/` package contains modular workflow functions for all major
-operations. Each workflow is self-contained and can be used independently.
-
-### Quick Reference
-
-**Data Preparation Workflows:**
-
-- `generate_data()` - Generate synthetic dataset (interactive prompt)
-- `split_data()` - Split data into train/test (interactive prompt)
-- `import_train_data()` - Import training data to database
-- `import_test_data()` - Import test data to database
-- `preprocess_train()` - Preprocess training data
-- `preprocess_test()` - Preprocess test data
-
-**Analysis Workflows:**
-
-- `train_model()` - Train models and learn weights
-- `test_model()` - Validate models on test data
-- `correlation_likes_reach()` - Analyze Likes vs Reach correlation
-- `correlation_comments_reach()` - Analyze Comments vs Reach correlation
-- `correlation_shares_reach()` - Analyze Shares vs Reach correlation
-- `run_diagnostics()` - Run diagnostic checks
-
-For detailed documentation with parameters, examples, and usage, see
-**[Workflows README](workflows/README.md)**.
-
-## 🔍 Data Exploration & Analysis
-
-Use `main.py` to explore the loaded data and perform analysis:
-
-```bash
-python main.py
-```
-
-### Main Menu Options
-
-The script provides an interactive menu with the following options:
-
-1. **Train** - Learn weights from training data
-
-   - Performs cross-sectional analysis
-   - Trains Linear Regression and Random Forest models
-   - Generates visualizations (heatmaps, facet grids)
-   - Identifies trending posts
-   - Saves training results
-
-2. **Test** - Validate weights on test data
-
-   - Loads learned weights from training
-   - Validates on test set
-   - Generates prediction vs actual visualizations
-   - Creates confusion matrices
-   - Provides validation metrics
-
-3. **Correlation - Likes vs Reach**
-
-   - Calculates Pearson correlation coefficient
-   - Displays correlation strength and direction
-   - Shows statistical summary for both metrics
-
-4. **Correlation - Comments vs Reach**
-
-   - Calculates Pearson correlation coefficient
-   - Displays correlation strength and direction
-   - Shows statistical summary for both metrics
-
-5. **Correlation - Shares vs Reach**
-   - Calculates Pearson correlation coefficient
-   - Displays correlation strength and direction
-   - Shows statistical summary for both metrics
-
-**Correlation Analysis Features:**
-
-- Loads data from training database
-- Calculates correlation coefficient with interpretation
-- Provides statistical summaries (mean, std, min, max)
-- Categorizes correlation strength (negligible, weak, moderate, strong, very strong)
-- Indicates direction (positive/negative)
-
-**Example Output:**
-
-```
-📊 CORRELATION ANALYSIS: Likes vs Reach
-================================================================================
-
-📖 Loading train data...
-✓ Loaded 999 rows × 18 columns
-
-🔍 Calculating correlation...
-
---------------------------------------------------------------------------------
-CORRELATION RESULTS
---------------------------------------------------------------------------------
-Column 1: Likes
-Column 2: Reach
-Correlation Coefficient: 0.8234
-Interpretation: very strong positive correlation
-
---------------------------------------------------------------------------------
-STATISTICAL SUMMARY
---------------------------------------------------------------------------------
-Likes:
-  Mean: 1250.45
-  Std:  2340.12
-  Min:  0.00
-  Max:  15000.00
-
-Reach:
-  Mean: 8500.23
-  Std:  12000.45
-  Min:  100.00
-  Max:  50000.00
-```
+Benefits:
+
+- reduces the dominance of outliers
+- improves numerical stability
+- makes errors comparable between small and large reach
+
+---
+
+## A3) Exposure features (inputs to Stage A)
+
+Define a feature vector \(\mathbf{x}\_i\) using only information known before users react:
+
+- \(K_i\): Klout
+- \(H_i\): Hour
+- \(W_i\): Weekday
+- \(D_i\): Day (day-of-month)
+- \(Lang_i\): language
+- \(S_i\): IsReshare
+- \(Loc_i\): LocationID (optional if it is clean and useful)
+
+**Important:** Do NOT use Likes or Retweets in Stage A.  
+They happen after exposure and create circular reasoning.
+
+---
+
+## A4) Exposure model
+
+Train a regression model \(f(\cdot)\) such that:
+
+\[
+\hat{Z}\_i = f(\mathbf{x}\_i)
+\]
+
+Then convert back to predicted Reach:
+
+\[
+\widehat{R}\_i = \exp(\hat{Z}\_i) - 1
+\]
+
+Interpretation:
+
+- \(\widehat{R}\_i\) is the **expected exposure** for tweet \(i\) given author/time/context.
+- It approximates “how much the platform would show this tweet” before seeing how users reacted.
+
+This is what you mean by “estimating Reach.”
+
+---
+
+## A5) Evaluation of Stage A (scientific defensibility)
+
+Evaluate on held-out data (test set):
+
+### MAE on log-Reach
+
+\[
+\text{MAE}_Z = \frac{1}{n} \sum_{i=1}^{n} |Z_i - \hat{Z}\_i|
+\]
+
+### RMSE on log-Reach
+
+\[
+\text{RMSE}_Z = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (Z_i - \hat{Z}\_i)^2}
+\]
+
+### R²
+
+\[
+R^2 = 1 - \frac{\sum*{i}(Z_i - \hat{Z}\_i)^2}{\sum*{i}(Z_i - \bar{Z})^2}
+\]
+
+### Critical splitting rule (avoid leakage)
+
+Use **grouped split by UserID**:
+
+- Tweets from the same user must not appear in both train and test.
+
+Reason:
+
+- Otherwise the model can memorize each user’s typical exposure pattern and performance becomes unrealistically high.
+
+---
+
+# Stage B — Debiased Popularity and Engagement Weight Learning
+
+## B1) Why we build a debiased popularity target
+
+If we use raw engagement counts as the target, we mostly learn exposure effects.  
+We instead want:
+
+> “How strong was the reaction relative to expected exposure?”
+
+So we use \(\widehat{R}\_i\) to correct exposure bias.
+
+---
+
+## B2) Exposure-normalized reaction rates (optional but intuitive)
+
+Define:
+
+\[
+\text{like_rate}\_i = \frac{L_i}{1 + \widehat{R}\_i}
+\]
+\[
+\text{rt_rate}\_i = \frac{T_i}{1 + \widehat{R}\_i}
+\]
+
+Interpretation:
+
+- likes per expected view
+- retweets per expected view
+
+This makes comparisons fair across users with very different exposure.
+
+---
+
+## B3) Debiased popularity score (the Stage B target)
+
+We want a single scalar target \(Y_i\). A simple, defensible definition is:
+
+\[
+Y_i = \log(1 + L_i + T_i) - \log(1 + \widehat{R}\_i)
+\]
+
+Why this works:
+
+- \(\log(1 + L_i + T_i)\) measures reaction intensity.
+- subtracting \(\log(1+\widehat{R}\_i)\) penalizes posts with huge expected exposure.
+
+So:
+
+- high engagement with low exposure → high \(Y_i\)
+- high engagement with massive exposure → smaller \(Y_i\)
+
+This \(Y_i\) is an exposure-aware (debiased) popularity signal.
+
+---
+
+## B4) Learning engagement weights (interpretable coefficients)
+
+Now we learn a model that predicts \(Y_i\) using Likes and Retweets as inputs.
+
+A linear (interpretable) model:
+
+\[
+Y_i = \beta_0 + \beta_1 L_i + \beta_2 T_i + \beta_3\,\text{Sentiment}\_i + \beta_4\,\text{TextFeat}\_i + \beta_5 K_i + \beta_6\,\text{TimeFeat}\_i + \varepsilon_i
+\]
+
+Interpretation:
+
+- \(\beta_1\) is the learned “weight” of Likes.
+- \(\beta_2\) is the learned “weight” of Retweets.
+
+Because the target \(Y_i\) already corrected for exposure, these weights have a much clearer meaning.
+
+---
+
+## B5) Why regularization is needed (for ISI-level rigor)
+
+Real data has correlated variables. Without regularization, coefficients can become unstable.
+
+Use **ElasticNet**:
+
+\[
+\min*{\beta} \sum*{i=1}^n (Y_i - \hat{Y}\_i)^2 + \lambda\Big(\alpha \|\beta\|\_1 + (1-\alpha)\|\beta\|\_2^2\Big)
+\]
+
+Where:
+
+- \(\|\beta\|\_1\): L1 penalty → sparsity / feature selection
+- \(\|\beta\|\_2^2\): L2 penalty → stabilizes correlated coefficients
+- \(\lambda\): strength of regularization
+- \(\alpha\): mix of L1 and L2
+
+Regularization makes your learned weights reproducible and defensible.
+
+---
+
+## B6) Making weights dynamic (context-dependent coefficients)
+
+You want weights to change with context (e.g., Hour, Klout).  
+We do this with **interaction terms**.
+
+### Dynamic weights by Hour
+
+Add:
+
+- \(L_i \times H_i\)
+- \(T_i \times H_i\)
+
+Model:
+
+\[
+Y_i = \beta_0 + \beta_1 L_i + \beta_2 T_i + \gamma_1(L_i H_i) + \gamma_2(T_i H_i) + \dots
+\]
+
+Then the effective weights become:
+
+\[
+w*{like}(H_i) = \beta_1 + \gamma_1 H_i
+\]
+\[
+w*{rt}(H_i) = \beta_2 + \gamma_2 H_i
+\]
+
+Meaning:
+
+- at different hours, the same Like/Retweet can imply different popularity.
+
+### Dynamic weights by Klout
+
+Add:
+
+- \(L_i \times K_i\)
+- \(T_i \times K_i\)
+
+Effective weights:
+
+\[
+w*{like}(K_i) = \beta_1 + \delta_1 K_i
+\]
+\[
+w*{rt}(K_i) = \beta_2 + \delta_2 K_i
+\]
+
+Meaning:
+
+- likes/retweets may carry different meaning depending on author authority.
+
+---
+
+## B7) Simple text features (easy to compute and defend)
+
+To keep things simple and understandable:
+
+- \(len_i\): length of text (characters/words)
+- \(hash_i\): number of hashtags
+- \(mention_i\): number of mentions
+
+You can add TF-IDF later, but these simple features are already defensible.
+
+---
+
+## B8) Evaluation of Stage B
+
+Use the same evaluation metrics (on \(Y\)):
+
+\[
+\text{MAE} = \frac{1}{n} \sum*i |Y_i - \hat{Y}\_i|
+\]
+\[
+\text{RMSE} = \sqrt{\frac{1}{n} \sum_i (Y_i - \hat{Y}\_i)^2}
+\]
+\[
+R^2 = 1 - \frac{\sum*{i}(Y*i - \hat{Y}\_i)^2}{\sum*{i}(Y_i - \bar{Y})^2}
+\]
+
+Again: split by UserID groups.
+
+---
+
+# Stage C — ISI-grade scientific checks (must-have)
+
+## C1) Ablation study (prove exposure correction matters)
+
+Compare two pipelines:
+
+1. **Naïve**: target \( \log(1+L+T) \) directly (no exposure correction)
+2. **Exposure-aware (ours)**: Stage A → \(\widehat{R}\), Stage B → \(Y\)
+
+You should observe:
+
+- better generalization (especially under UserID-group split)
+- more stable and interpretable coefficients
+
+This justifies your design decisions academically.
+
+---
+
+## C2) Coefficient stability via bootstrap (publishable rigor)
+
+To show weights are reliable:
+
+1. Resample users (UserID groups) with replacement
+2. Retrain Stage B each time
+3. Store \(\beta_1\) and \(\beta_2\)
+4. Report 95% confidence intervals
+
+\[
+CI*{95\%}(\beta_j) = [q*{0.025}(\beta*j^\*),\ q*{0.975}(\beta_j^\*)]
+\]
+
+---
+
+# End-to-end pipeline (what you will actually do)
+
+1. Preprocess data (types, missing values, encoding).
+2. **Stage A**: train exposure model:
+   - target: \(Z=\log(1+Reach)\)
+   - inputs: Klout, Hour, Weekday, Day, Lang, IsReshare, LocationID
+   - output: \(\widehat{R}=\exp(\hat{Z})-1\)
+3. Construct debiased popularity:
+   - \(Y = \log(1+Likes+Retweets) - \log(1+\widehat{R})\)
+4. **Stage B**: train ElasticNet to predict \(Y\) using Likes/Retweets + controls + text features.
+5. Add interactions to obtain **dynamic weights**.
+6. Evaluate with group split, ablation, and bootstrap stability.
+
+---
+
+# What you will report in the paper
+
+- Stage A (Reach estimation): MAE/RMSE/R² on log-Reach
+- Stage B (debiased popularity): MAE/RMSE/R² on \(Y\)
+- Learned static weights: \(\beta_1\) (Like), \(\beta_2\) (Retweet)
+- Dynamic weight functions: \(w*{like}(Hour)\), \(w*{rt}(Hour)\), \(w\_{like}(Klout)\), ...
+- Ablation results (naïve vs exposure-aware)
+- Bootstrap confidence intervals for key coefficients
