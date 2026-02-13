@@ -39,3 +39,17 @@ def apply_scores(df: pd.DataFrame, weights_df: pd.DataFrame) -> pd.DataFrame:
     )
     out["Score"] = merged["Score"].values
     return out
+
+
+def apply_baseline_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute Score_baseline = Likes_ll + Comments_ll + Shares_ll (equal weights).
+
+    Args:
+        df: DataFrame with Likes_ll, Comments_ll, Shares_ll.
+
+    Returns:
+        Copy of df with added Score_baseline column.
+    """
+    out = df.copy()
+    out["Score_baseline"] = out["Likes_ll"] + out["Comments_ll"] + out["Shares_ll"]
+    return out

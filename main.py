@@ -1,3 +1,4 @@
+from popweight.baseline import compare_with_popweight, run_baseline_evaluation
 from popweight.cleaning import clean_core_columns
 from popweight.config import (
     DATA_PATH,
@@ -9,7 +10,7 @@ from popweight.config import (
     TRAIN_RATIO,
     TREND_PERCENTILE,
 )
-from popweight.evaluation import classification_metrics
+from popweight.evaluation import classification_metrics, evaluate_regression
 from popweight.features import add_segment_key, add_transforms
 from popweight.io_excel import load_working_file
 from popweight.models import predict_trending, train_trending_classifier
@@ -43,15 +44,26 @@ def main() -> None:
     test_labeled = apply_trending_label(s0.test_df, thresholds)
 
     model = train_trending_classifier(train_labeled.assign(Score=train_scored["Score"]))
-    y_pred, y_prob = predict_trending(
+    y_pred, _ = predict_trending(
         model,
         test_labeled.assign(Score=test_scored["Score"]),
     )
 
     y_true = test_labeled["Trending"].to_numpy()
-    m_cls = classification_metrics(y_true, y_pred)
-    print(m_cls)
-    print("true positive rate:", y_true.mean())
+    pw_reg = evaluate_regression(test_scored, seed=0)
+    pw_cls = classification_metrics(y_true, y_pred)
+    pw_cls["seed"] = 0
+
+    bl0 = run_baseline_evaluation(s0, TREND_PERCENTILE, seed=0)
+    print("baseline regression:", bl0["baseline_regression"])
+    print("baseline classification:", bl0["baseline_classification"])
+    d0 = compare_with_popweight(
+        pw_reg,
+        pw_cls,
+        bl0["baseline_regression"],
+        bl0["baseline_classification"],
+    )
+    print("deltas:", d0)
 
 
 if __name__ == "__main__":
