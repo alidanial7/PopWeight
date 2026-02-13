@@ -1,10 +1,18 @@
-import os
+import pandas as pd
 
 from popweight.cleaning import clean_core_columns
-from popweight.config import DATA_PATH, SEGMENT_KEYS, SHEET_NAME, SQLITE_PATH
+from popweight.config import (
+    DATA_PATH,
+    RANDOM_SEEDS,
+    SEGMENT_KEYS,
+    SHEET_NAME,
+    SQLITE_PATH,
+    TRAIN_RATIO,
+)
 from popweight.features import add_segment_key, add_transforms
 from popweight.io_excel import load_working_file
-from popweight.storage import init_db, read_df, write_df
+from popweight.splits import make_splits
+from popweight.storage import init_db, write_df
 
 
 def main() -> None:
@@ -16,12 +24,23 @@ def main() -> None:
     init_db(SQLITE_PATH)
     write_df("features_data", df_features)
 
-    print("sqlite exists:", os.path.exists(SQLITE_PATH), SQLITE_PATH)
-    df_db = read_df("features_data")
-    print("db shape:", df_db.shape)
-    print("same columns:", df_db.columns.tolist() == df_features.columns.tolist())
-    df_inst = read_df("features_data", where="Platform = 'Instagram'")
-    print(df_inst.shape, df_inst["Platform"].unique())
+    splits = make_splits(df_features, RANDOM_SEEDS, TRAIN_RATIO)
+    s0 = [s for s in splits if s.seed == 0][0]
+    print("train shape:", s0.train_df.shape)
+    print("test shape:", s0.test_df.shape)
+    print("total:", s0.train_df.shape[0] + s0.test_df.shape[0])
+
+    train_segs = set(s0.train_df["Segment"].unique())
+    test_segs = set(s0.test_df["Segment"].unique())
+    print("segments train:", len(train_segs))
+    print("segments test:", len(test_segs))
+    print("test minus train:", test_segs - train_segs)
+
+    train_dist = s0.train_df["Segment"].value_counts(normalize=True).sort_index()
+    test_dist = s0.test_df["Segment"].value_counts(normalize=True).sort_index()
+    dist_diff = (train_dist - test_dist).abs()
+    print("max abs diff:", dist_diff.max())
+    print(pd.concat([train_dist, test_dist, dist_diff], axis=1).head(12))
 
 
 if __name__ == "__main__":
