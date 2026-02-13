@@ -8,6 +8,7 @@ from popweight.config import (
     SQLITE_PATH,
     TRAIN_RATIO,
 )
+from popweight.evaluation import evaluate_regression
 from popweight.features import add_segment_key, add_transforms
 from popweight.io_excel import load_working_file
 from popweight.scoring import apply_scores
@@ -32,18 +33,12 @@ def main() -> None:
         seed=0,
         min_segment_samples=MIN_SEGMENT_SAMPLES,
     )
-    train_scored = apply_scores(s0.train_df, w0)
     test_scored = apply_scores(s0.test_df, w0)
 
-    print("train_scored shape:", train_scored.shape)
-    print("test_scored shape:", test_scored.shape)
-    print(
-        "Score NaNs train/test:",
-        train_scored["Score"].isna().sum(),
-        test_scored["Score"].isna().sum(),
-    )
-    print(train_scored["Score"].describe())
-    print(test_scored["Score"].describe())
+    m0 = evaluate_regression(test_scored, seed=0)
+    print(m0)
+    print("y_true std:", test_scored["Reach_log"].std())
+    print("y_pred std:", test_scored["Score"].std())
 
 
 if __name__ == "__main__":
