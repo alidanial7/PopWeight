@@ -1,11 +1,31 @@
 """Weight learning per segment via linear regression."""
 
+import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 
 FEATURE_COLS = ["Likes_ll", "Comments_ll", "Shares_ll"]
-TARGET_COL = "Reach_log"
+ER_EPS = 1e-10
+
+
+def compute_log_ER_proxy(df: pd.DataFrame) -> pd.Series:
+    """Compute log(ER_proxy) target aligned with Trending.
+
+    Eng = Likes + Comments + Shares
+    ER_proxy = (Eng / Reach.clip(lower=1)).clip(lower=ER_EPS)
+    Returns log(ER_proxy).
+
+    Requires: Likes, Comments, Shares, Reach.
+    """
+    eng = (
+        df["Likes"].astype(float)
+        + df["Comments"].astype(float)
+        + df["Shares"].astype(float)
+    )
+    reach_safe = df["Reach"].astype(float).clip(lower=1)
+    er_proxy = (eng / reach_safe).clip(lower=ER_EPS)
+    return np.log(er_proxy)
 
 
 def _fit_linreg(X: pd.DataFrame, y: pd.Series) -> tuple[float, float, float, float]:
@@ -26,7 +46,7 @@ def _fit_segment(
     if n < min_samples:
         return None, "insufficient"
     X = seg_df[FEATURE_COLS]
-    y = seg_df[TARGET_COL]
+    y = compute_log_ER_proxy(seg_df)
     intercept, alpha, beta, gamma = _fit_linreg(X, y)
     y_pred = (
         X["Likes_ll"] * alpha
@@ -53,13 +73,15 @@ def fit_segment_weights(
     seed: int | None = None,
     min_segment_samples: int = 20,
 ) -> pd.DataFrame:
-    """Learn (alpha, beta, gamma) per segment to predict Reach_log.
+    """Learn (alpha, beta, gamma) per segment to predict log(ER_proxy).
 
-    Linear regression: X = [Likes_ll, Comments_ll, Shares_ll], y = Reach_log.
+    Linear regression: X = [Likes_ll, Comments_ll, Shares_ll],
+    y = log(ER_proxy) where ER_proxy = Eng/Reach.
     Segments with < min_segment_samples use global fallback weights.
 
     Args:
-        train_df: Training data with Segment, FEATURE_COLS, TARGET_COL.
+        train_df: Training data with Segment, FEATURE_COLS, Likes,
+            Comments, Shares, Reach.
         seed: Optional seed for reproducibility (stored in output).
         min_segment_samples: Minimum rows to fit segment-specific weights.
 
@@ -68,7 +90,7 @@ def fit_segment_weights(
         beta, gamma, intercept, n_train, r2_train, strategy.
     """
     X_global = train_df[FEATURE_COLS]
-    y_global = train_df[TARGET_COL]
+    y_global = compute_log_ER_proxy(train_df)
     global_intercept, global_alpha, global_beta, global_gamma = _fit_linreg(
         X_global, y_global
     )

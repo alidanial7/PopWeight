@@ -4,8 +4,9 @@ import pandas as pd
 
 
 def apply_scores(df: pd.DataFrame, weights_df: pd.DataFrame) -> pd.DataFrame:
-    """Compute Score = intercept + alpha*Likes_ll + beta*Comments_ll + gamma*Shares_ll.
+    """Compute Score predicting log(ER_proxy) via learned weights.
 
+    Score = intercept + alpha*Likes_ll + beta*Comments_ll + gamma*Shares_ll.
     Joins weights by (Platform, Post Type). Rows with missing weights use
     fallback (mean of all segment weights).
 
@@ -16,7 +17,7 @@ def apply_scores(df: pd.DataFrame, weights_df: pd.DataFrame) -> pd.DataFrame:
             alpha, beta, gamma, intercept).
 
     Returns:
-        Copy of df with added Score column.
+        Copy of df with added Score column (predicts log(ER_proxy)).
     """
     out = df.copy()
     merge_cols = ["Platform", "Post Type"]

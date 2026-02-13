@@ -20,7 +20,7 @@ def run_baseline_evaluation(
     """Run baseline pipeline: Score_baseline regression + classifier metrics.
 
     Computes Score_baseline = Likes_ll + Comments_ll + Shares_ll;
-    evaluates regression vs Reach_log; trains classifier with Score_baseline;
+    evaluates regression vs log(ER_proxy); trains classifier with Score_baseline;
     evaluates classification.
 
     Args:
@@ -45,7 +45,11 @@ def run_baseline_evaluation(
     train_for_clf = train_labeled.assign(Score=train_baseline["Score_baseline"])
     test_for_clf = test_labeled.assign(Score=test_baseline["Score_baseline"])
     model = train_trending_classifier(train_for_clf)
-    y_pred, _ = predict_trending(model, test_for_clf)
+    y_pred, _, _ = predict_trending(
+        model,
+        test_for_clf,
+        train_scored_labeled_df=train_for_clf,
+    )
     cls = classification_metrics(
         test_labeled["Trending"].to_numpy(),
         y_pred,

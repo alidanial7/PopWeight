@@ -13,6 +13,8 @@ from sklearn.metrics import (
     recall_score,
 )
 
+from popweight.weights import compute_log_ER_proxy
+
 
 def regression_metrics(
     y_true: pd.Series | np.ndarray,
@@ -21,7 +23,7 @@ def regression_metrics(
     """Compute regression metrics: R², MAE, RMSE, Pearson correlation.
 
     Args:
-        y_true: Ground truth values (Reach_log).
+        y_true: Ground truth values (log(ER_proxy)).
         y_pred: Predicted values (Score).
 
     Returns:
@@ -42,17 +44,18 @@ def evaluate_regression(
     seed: int | None = None,
     score_col: str = "Score",
 ) -> dict:
-    """Evaluate score column vs Reach_log on test set.
+    """Evaluate score column vs log(ER_proxy) on test set.
 
     Args:
-        test_scored_df: DataFrame with Reach_log and score column.
+        test_scored_df: DataFrame with Likes, Comments, Shares, Reach
+            and score column.
         seed: Optional seed to include in output row.
         score_col: Column name for predictions (default "Score").
 
     Returns:
         Dict with seed (if provided), r2, mae, rmse, pearson.
     """
-    y_true = test_scored_df["Reach_log"]
+    y_true = compute_log_ER_proxy(test_scored_df)
     y_pred = test_scored_df[score_col]
     metrics = regression_metrics(y_true, y_pred)
     if seed is not None:

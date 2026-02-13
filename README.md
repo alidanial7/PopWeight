@@ -13,7 +13,7 @@ The Excel file contains at least these sheets:
 The goal is to:
 
 1. **Learn platform- and post-type-specific interaction weights** (\alpha, \beta, \gamma) such that engagement interactions predict **Reach**.
-2. Use the learned weights to compute an **Engagement Score** and build a **Trending classifier** (binary) where trending is defined by **Reach percentile within each segment**.
+2. Use the learned weights to compute an **Engagement Score** and build a **Trending classifier** (binary) where trending is defined by **engagement rate proxy (ER_proxy) percentile within each segment**.
 
 > IMPORTANT: **Do not use `Engagement Rate`** in training or validation. It is derived from Reach and interaction counts and may cause leakage.
 
@@ -408,35 +408,40 @@ Compute on test set per split:
 
 ### Objective
 
-Create a binary label `Trending` based on **Reach**, not Score.
+Create a binary label `Trending` based on **engagement rate proxy (ER_proxy)**, not Reach or Score.
 
 ### Definition
 
-Within each segment, compute threshold:
+- `Eng = Likes + Comments + Shares`
+- `ER_proxy = Eng / Reach` (safe division; Reach=0 rows removed in cleaning)
 
-- `thr = percentile(Reach, TREND_PERCENTILE)` using **train** or **combined train+test** for stability.
+Within each segment, compute threshold on **train only** per seed:
+
+- `threshold = quantile(ER_proxy, TREND_PERCENTILE)`
 
 Label:
 
-- `Trending = 1 if Reach >= thr else 0`
+- `Trending = 1 if ER_proxy >= threshold else 0`
 
-> Recommended: compute thresholds on **train only** per seed to avoid test leakage.
+For rows whose segment has no threshold (e.g., unseen segment in test), use the **median threshold across all segments** for that seed.
+
+> Eng and ER_proxy are computed inside `trending.py`; the pipeline must have `Likes`, `Comments`, `Shares`, `Reach` available before trend labeling.
 
 ### Implement
 
 `popweight/trending.py`:
 
-- `compute_segment_thresholds(train_df, percentile) -> thresholds_df`
+- `compute_segment_thresholds(train_df, percentile) -> thresholds_df` (returns Segment, threshold for ER_proxy)
 - `apply_trending_label(df, thresholds_df) -> df_labeled`
 
 ### Inputs
 
-- `train_df` (for thresholds)
-- `test_scored_df` (to label)
+- `train_df` (for thresholds; must have Likes, Comments, Shares, Reach, Segment)
+- `df` to label (must have same columns)
 
 ### Outputs
 
-- `test_labeled_df` with `Trending`
+- `df_labeled` with `Trending` (trending rate ~10% in train with TREND_PERCENTILE=0.9)
 
 ---
 
