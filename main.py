@@ -1,5 +1,3 @@
-import numpy as np
-
 from popweight.cleaning import clean_core_columns
 from popweight.config import (
     DATA_PATH,
@@ -11,6 +9,7 @@ from popweight.config import (
     TRAIN_RATIO,
     TREND_PERCENTILE,
 )
+from popweight.evaluation import classification_metrics
 from popweight.features import add_segment_key, add_transforms
 from popweight.io_excel import load_working_file
 from popweight.models import predict_trending, train_trending_classifier
@@ -49,10 +48,10 @@ def main() -> None:
         test_labeled.assign(Score=test_scored["Score"]),
     )
 
-    print("pred shape:", y_pred.shape, "prob shape:", y_prob.shape)
-    print("pred positive rate:", y_pred.mean())
-    print("prob min/mean/max:", y_prob.min(), y_prob.mean(), y_prob.max())
-    print("unique preds:", np.unique(y_pred, return_counts=True))
+    y_true = test_labeled["Trending"].to_numpy()
+    m_cls = classification_metrics(y_true, y_pred)
+    print(m_cls)
+    print("true positive rate:", y_true.mean())
 
 
 if __name__ == "__main__":

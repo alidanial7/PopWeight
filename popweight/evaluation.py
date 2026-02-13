@@ -2,7 +2,16 @@
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_score,
+    r2_score,
+    recall_score,
+)
 
 
 def regression_metrics(
@@ -47,3 +56,29 @@ def evaluate_regression(
     if seed is not None:
         metrics["seed"] = seed
     return metrics
+
+
+def classification_metrics(
+    y_true: pd.Series | np.ndarray,
+    y_pred: pd.Series | np.ndarray,
+) -> dict:
+    """Compute classification metrics: accuracy, precision, recall, F1.
+
+    Args:
+        y_true: Ground truth labels (0/1).
+        y_pred: Predicted labels (0/1).
+
+    Returns:
+        Dict with keys: accuracy, precision, recall, f1, confusion_matrix.
+        confusion_matrix is [[tn, fp], [fn, tp]].
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    kwargs = {"zero_division": 0}
+    return {
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "precision": float(precision_score(y_true, y_pred, **kwargs)),
+        "recall": float(recall_score(y_true, y_pred, **kwargs)),
+        "f1": float(f1_score(y_true, y_pred, **kwargs)),
+        "confusion_matrix": confusion_matrix(y_true, y_pred).tolist(),
+    }
