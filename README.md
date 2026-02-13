@@ -1,418 +1,658 @@
-# Exposure-Aware Reach Estimation and Dynamic Engagement Weight Learning (Master/ISI-ready)
+# PopWeight — Implementation Plan (README)
 
-## Goal (What this method achieves)
+This document specifies the step-by-step engineering tasks to implement the **PopWeight** pipeline in Python, using an Excel dataset located at:
 
-We want to do two things in a scientifically defensible way:
+- `./data/social_media_engagement_data.xlsx`
 
-1. **Estimate Reach** (how much a post is shown / exposed).
-2. **Learn data-driven engagement weights** (how important a Like vs. a Retweet is) **after removing exposure bias**.
-3. Make these weights **dynamic** (they can change with context like Hour or Klout).
+The Excel file contains at least these sheets:
 
-This document explains the full pipeline step by step so that even a reader with limited ML background can follow it.
+- `Working File` (primary sheet to use)
+- `social_media_engagement_data` (raw reference; not required for modeling)
+- `Countries or Areas` (lookup table; optional for future work)
 
----
+The goal is to:
 
-## 1) Why raw engagement cannot directly give you valid weights
+1. **Learn platform- and post-type-specific interaction weights** (\alpha, \beta, \gamma) such that engagement interactions predict **Reach**.
+2. Use the learned weights to compute an **Engagement Score** and build a **Trending classifier** (binary) where trending is defined by **Reach percentile within each segment**.
 
-On social media, large engagement can happen for two different reasons:
-
-- **High exposure**: the post was shown to many people (high Reach).
-- **High reaction strength**: people reacted strongly _given that they saw it_.
-
-If we learn weights from raw Likes/Retweets without controlling exposure, we confuse the two mechanisms.
-
-Example:
-
-- A celebrity tweet gets many Likes mainly because it was shown to many people.
-- A normal user tweet may get fewer Likes, but can be _very strong relative to its small exposure_.
-
-So we must separate:
-
-- **Visibility / Exposure process** → determines Reach
-- **Reaction process** → determines Likes/Retweets _conditional on exposure_
-
-This separation is the foundation of a defensible academic method.
+> IMPORTANT: **Do not use `Engagement Rate`** in training or validation. It is derived from Reach and interaction counts and may cause leakage.
 
 ---
 
-## 2) Dataset columns and what each one is used for
+## 0) Repository Structure (Required)
 
-Your dataset columns:
+```
+project/
+  main.py
+  data/
+    social_media_engagement_data.xlsx
+  popweight/
+    __init__.py
+    config.py
+    io_excel.py
+    schema.py
+    cleaning.py
+    features.py
+    splits.py
+    weights.py
+    scoring.py
+    trending.py
+    models.py
+    evaluation.py
+    storage.py
+    diagnostics.py
+  outputs/
+    (generated artifacts)
+  logs/
+    (optional)
+```
 
-**Context at posting time**
+### Output artifacts (minimum)
 
-- `Weekday`, `Hour`, `Day`, `Lang`, `LocationID`, `IsReshare`
-
-**Author information**
-
-- `Klout`, `UserID`
-
-**Content**
-
-- `text`, `Sentiment`
-
-**Observed outcomes**
-
-- `Reach`, `Likes`, `RetweetCount`
-
-We will use them in two stages:
-
-- **Stage A (Exposure model)**: estimate Reach from variables known at posting time.
-- **Stage B (Debiased popularity + weights)**: learn Like/Retweet weights using the exposure estimate.
-
----
-
-# Stage A — Reach (Exposure) Estimation
-
-## A1) Definition and notation
-
-For each tweet \(i\):
-
-- Observed reach: \(R_i\)
-- Observed likes: \(L_i\)
-- Observed retweets: \(T_i\)
-
-We interpret \(R_i\) as a proxy for **exposure** (how many users potentially saw the tweet).
-
-Exposure is influenced by:
-
-- author authority (Klout)
-- time of posting
-- language
-- reshare status
-- platform ranking/algorithm
-
-**Stage A goal:** estimate the exposure that would be expected from _only pre-reaction information_.
+- `outputs/results.sqlite` (SQLite database containing processed data, learned weights, and metrics)
+- `outputs/weights.csv` (learned weights per segment)
+- `outputs/metrics_regression.csv` (regression metrics per split and aggregate)
+- `outputs/metrics_classification.csv` (classification metrics per split and aggregate)
+- Optional plots: `outputs/pred_vs_actual.png`, `outputs/confusion_matrix.png`, `outputs/weights_heatmap.png`
 
 ---
 
-## A2) Why log-transform Reach
+## 1) Global Configuration (TASK)
 
-Reach is typically extremely skewed: many small values, few extremely large values.
+### Objective
 
-To stabilize training we define:
+Centralize all settings in one place.
 
-\[
-Z_i = \log(1 + R_i)
-\]
+### Implement
 
-Why \(+1\)?
+Create `popweight/config.py` with:
 
-- Because \(\log(0)\) is undefined.
+- `DATA_PATH = "data/social_media_engagement_data.xlsx"`
+- `SHEET_NAME = "Working File"`
+- `SQLITE_PATH = "outputs/results.sqlite"`
+- `RANDOM_SEEDS = [0,1,2,3,4,5,6,7,8,9]` (default 10 repeats)
+- `TRAIN_RATIO = 0.8`
+- `TREND_PERCENTILE = 0.9` (top 10% per segment)
+- Outlier controls:
+  - `REMOVE_TOP_REACH_PERCENTILE = 0.995` (optional)
+  - `MIN_REACH = 1`
 
-Benefits:
+- Feature transform controls:
+  - `USE_DOUBLE_LOG = True`
 
-- reduces the dominance of outliers
-- improves numerical stability
-- makes errors comparable between small and large reach
+- Segment definition:
+  - `SEGMENT_KEYS = ["Platform", "Post Type"]`
 
----
+### Inputs
 
-## A3) Exposure features (inputs to Stage A)
+None.
 
-Define a feature vector \(\mathbf{x}\_i\) using only information known before users react:
+### Outputs
 
-- \(K_i\): Klout
-- \(H_i\): Hour
-- \(W_i\): Weekday
-- \(D_i\): Day (day-of-month)
-- \(Lang_i\): language
-- \(S_i\): IsReshare
-- \(Loc_i\): LocationID (optional if it is clean and useful)
-
-**Important:** Do NOT use Likes or Retweets in Stage A.  
-They happen after exposure and create circular reasoning.
+Python config module.
 
 ---
 
-## A4) Exposure model
+## 2) Excel Ingestion (TASK)
 
-Train a regression model \(f(\cdot)\) such that:
+### Objective
 
-\[
-\hat{Z}\_i = f(\mathbf{x}\_i)
-\]
+Load the dataset from the Excel file, using the `Working File` sheet.
 
-Then convert back to predicted Reach:
+### Implement
 
-\[
-\widehat{R}\_i = \exp(\hat{Z}\_i) - 1
-\]
+`popweight/io_excel.py`:
+
+- `load_working_file(path: str, sheet: str) -> pandas.DataFrame`
+  - Read Excel with `openpyxl` engine
+  - Preserve column names exactly as found
+  - Trim whitespace from string columns (including trailing spaces in headers)
+
+### Inputs
+
+- `data/social_media_engagement_data.xlsx`
+- `sheet = "Working File"`
+
+### Outputs
+
+- DataFrame `df_raw`
+
+---
+
+## 3) Column Normalization + Schema Validation (TASK)
+
+### Objective
+
+Ensure required columns exist and are consistently named.
+
+### Required columns (must exist)
+
+- `Platform`
+- `Post Type`
+- `Likes`
+- `Comments`
+- `Shares`
+- `Reach`
+- `Weekday Type`
+- `Time Periods`
+- `Age Group`
+- `Sentiment`
+
+### Implement
+
+`popweight/schema.py`:
+
+- `normalize_columns(df) -> df`
+  - Strip header whitespace
+  - Normalize common variants (e.g., double spaces)
+
+- `validate_required_columns(df) -> None`
+  - Raise a clear exception listing missing columns
+
+### Inputs
+
+- `df_raw`
+
+### Outputs
+
+- `df_schema_ok`
+
+---
+
+## 4) Data Cleaning + Integrity Rules (TASK)
+
+### Objective
+
+Clean numeric columns and enforce integrity constraints.
+
+### Rules
+
+- Convert `Likes`, `Comments`, `Shares`, `Reach` to numeric (coerce errors to NaN)
+- Drop rows with NaN in any of: Likes, Comments, Shares, Reach
+- Remove rows where:
+  - `Reach < MIN_REACH`
+  - `Likes < 0` or `Comments < 0` or `Shares < 0`
+
+- Optional outlier removal:
+  - Remove rows with `Reach` above `REMOVE_TOP_REACH_PERCENTILE` (global or per segment; choose global for simplicity)
+
+### Implement
+
+`popweight/cleaning.py`:
+
+- `clean_core_columns(df, config) -> (df_clean, report_dict)`
+  - `report_dict` includes counts of dropped rows by reason
+
+### Inputs
+
+- `df_schema_ok`
+
+### Outputs
+
+- `df_clean`
+- `cleaning_report.json` (stored in SQLite and/or `outputs/cleaning_report.json`)
+
+---
+
+## 5) Feature Engineering (TASK)
+
+### Objective
+
+Create transformed interaction features and modeling-ready fields.
+
+### Transforms
+
+For each row:
+
+- `Likes_ll = log(log(Likes + 1) + 1)`
+- `Comments_ll = log(log(Comments + 1) + 1)`
+- `Shares_ll = log(log(Shares + 1) + 1)`
+- `Reach_log = log(Reach + 1)`
+
+Additionally:
+
+- `Segment = Platform + "__" + Post Type` (string key)
+- Convert categorical columns to clean categories (strip whitespace):
+  - `Platform`, `Post Type`, `Weekday Type`, `Time Periods`, `Age Group`, `Sentiment`
+
+### Implement
+
+`popweight/features.py`:
+
+- `add_transforms(df) -> df`
+- `add_segment_key(df, keys=["Platform","Post Type"]) -> df`
+
+### Inputs
+
+- `df_clean`
+
+### Outputs
+
+- `df_features`
+
+---
+
+## 6) SQLite Storage (TASK — Recommended)
+
+### Objective
+
+Persist intermediate results for faster iteration and easy querying.
+
+### Tables
+
+- `raw_working_file` (optional)
+- `clean_data`
+- `features_data`
+- `weights` (learned weights per segment per split)
+- `regression_metrics` (per split)
+- `classification_metrics` (per split)
+- `aggregate_metrics` (summary)
+
+### Implement
+
+`popweight/storage.py`:
+
+- `init_db(sqlite_path) -> None`
+- `write_df(table_name, df) -> None`
+- `read_df(table_name, where=None) -> df`
+
+### Inputs
+
+- `df_clean`, `df_features`, later results
+
+### Outputs
+
+- `outputs/results.sqlite`
+
+---
+
+## 7) Repeated Train/Test Split with Segment Coverage (TASK)
+
+### Objective
+
+Create repeated train/test splits while ensuring segments are present.
+
+### Requirements
+
+- Use `TRAIN_RATIO`.
+- Repeat for each seed in `RANDOM_SEEDS`.
+- Ensure every segment in test exists in train (segment coverage). If not, re-sample or drop those test rows (prefer re-sample up to N tries).
+
+### Implement
+
+`popweight/splits.py`:
+
+- `make_splits(df, seeds, train_ratio) -> List[Split]`
+  - Each Split contains `seed`, `train_df`, `test_df`
+
+### Inputs
+
+- `df_features`
+
+### Outputs
+
+- List of splits
+
+---
+
+## 8) Weight Learning per Segment (Regression) (TASK)
+
+### Objective
+
+Learn (\alpha, \beta, \gamma) per segment to predict `Reach_log`.
+
+### Model
+
+- Linear Regression per segment:
+  - X = [`Likes_ll`, `Comments_ll`, `Shares_ll`]
+  - y = `Reach_log`
+
+- Store `alpha`, `beta`, `gamma`, and `intercept`.
+- Also store regression training diagnostics per segment:
+  - `n_train_rows`
+  - `r2_train` (optional)
+
+### Implement
+
+`popweight/weights.py`:
+
+- `fit_segment_weights(train_df) -> weights_df`
+  - Iterate over segments
+  - Handle small segments:
+    - If a segment has < `MIN_SEGMENT_SAMPLES` (define, e.g., 20), either:
+      - skip and mark as insufficient
+      - or fall back to platform-only weights
+      - or fall back to global weights
+
+    - Must be deterministic and logged.
+
+### Inputs
+
+- `train_df` from a split
+
+### Outputs
+
+- `weights_df` with columns:
+  - `seed`, `Platform`, `Post Type`, `Segment`, `alpha`, `beta`, `gamma`, `intercept`, `n_train`
+
+---
+
+## 9) Scoring: Predict `Reach_log` via Engagement Score (TASK)
+
+### Objective
+
+Compute predicted reach signal per row using learned weights.
+
+### Formula
+
+For each row in train/test within a segment:
+
+`Score = intercept + alpha*Likes_ll + beta*Comments_ll + gamma*Shares_ll`
 
 Interpretation:
 
-- \(\widehat{R}\_i\) is the **expected exposure** for tweet \(i\) given author/time/context.
-- It approximates “how much the platform would show this tweet” before seeing how users reacted.
+- `Score` is the model’s prediction of `Reach_log`.
 
-This is what you mean by “estimating Reach.”
+### Implement
 
----
+`popweight/scoring.py`:
 
-## A5) Evaluation of Stage A (scientific defensibility)
+- `apply_scores(df, weights_df) -> df_scored`
+  - Join weights by (`Platform`, `Post Type`) and compute Score
+  - If weights missing for a segment, apply fallback strategy (must be defined)
 
-Evaluate on held-out data (test set):
+### Inputs
 
-### MAE on log-Reach
+- `test_df`
+- `weights_df` for the same seed
 
-\[
-\text{MAE}_Z = \frac{1}{n} \sum_{i=1}^{n} |Z_i - \hat{Z}\_i|
-\]
+### Outputs
 
-### RMSE on log-Reach
-
-\[
-\text{RMSE}_Z = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (Z_i - \hat{Z}\_i)^2}
-\]
-
-### R²
-
-\[
-R^2 = 1 - \frac{\sum*{i}(Z_i - \hat{Z}\_i)^2}{\sum*{i}(Z_i - \bar{Z})^2}
-\]
-
-### Critical splitting rule (avoid leakage)
-
-Use **grouped split by UserID**:
-
-- Tweets from the same user must not appear in both train and test.
-
-Reason:
-
-- Otherwise the model can memorize each user’s typical exposure pattern and performance becomes unrealistically high.
+- `test_scored_df` containing `Score`
 
 ---
 
-# Stage B — Debiased Popularity and Engagement Weight Learning
+## 10) Regression Evaluation (TASK)
 
-## B1) Why we build a debiased popularity target
+### Objective
 
-If we use raw engagement counts as the target, we mostly learn exposure effects.  
-We instead want:
+Evaluate how well the Score predicts `Reach_log`.
 
-> “How strong was the reaction relative to expected exposure?”
+### Metrics
 
-So we use \(\widehat{R}\_i\) to correct exposure bias.
+Compute on test set per split:
 
----
+- R²
+- MAE
+- RMSE
+- Pearson correlation
 
-## B2) Exposure-normalized reaction rates (optional but intuitive)
+### Implement
 
-Define:
+`popweight/evaluation.py`:
 
-\[
-\text{like_rate}\_i = \frac{L_i}{1 + \widehat{R}\_i}
-\]
-\[
-\text{rt_rate}\_i = \frac{T_i}{1 + \widehat{R}\_i}
-\]
+- `regression_metrics(y_true, y_pred) -> dict`
+- `evaluate_regression(test_scored_df) -> metrics_row`
 
-Interpretation:
+### Inputs
 
-- likes per expected view
-- retweets per expected view
+- `test_scored_df` with `Reach_log` and `Score`
 
-This makes comparisons fair across users with very different exposure.
+### Outputs
 
----
-
-## B3) Debiased popularity score (the Stage B target)
-
-We want a single scalar target \(Y_i\). A simple, defensible definition is:
-
-\[
-Y_i = \log(1 + L_i + T_i) - \log(1 + \widehat{R}\_i)
-\]
-
-Why this works:
-
-- \(\log(1 + L_i + T_i)\) measures reaction intensity.
-- subtracting \(\log(1+\widehat{R}\_i)\) penalizes posts with huge expected exposure.
-
-So:
-
-- high engagement with low exposure → high \(Y_i\)
-- high engagement with massive exposure → smaller \(Y_i\)
-
-This \(Y_i\) is an exposure-aware (debiased) popularity signal.
+- `regression_metrics` table rows per seed
 
 ---
 
-## B4) Learning engagement weights (interpretable coefficients)
+## 11) Trending Label Construction (TASK)
 
-Now we learn a model that predicts \(Y_i\) using Likes and Retweets as inputs.
+### Objective
 
-A linear (interpretable) model:
+Create a binary label `Trending` based on **Reach**, not Score.
 
-\[
-Y_i = \beta_0 + \beta_1 L_i + \beta_2 T_i + \beta_3\,\text{Sentiment}\_i + \beta_4\,\text{TextFeat}\_i + \beta_5 K_i + \beta_6\,\text{TimeFeat}\_i + \varepsilon_i
-\]
+### Definition
 
-Interpretation:
+Within each segment, compute threshold:
 
-- \(\beta_1\) is the learned “weight” of Likes.
-- \(\beta_2\) is the learned “weight” of Retweets.
+- `thr = percentile(Reach, TREND_PERCENTILE)` using **train** or **combined train+test** for stability.
 
-Because the target \(Y_i\) already corrected for exposure, these weights have a much clearer meaning.
+Label:
 
----
+- `Trending = 1 if Reach >= thr else 0`
 
-## B5) Why regularization is needed (for ISI-level rigor)
+> Recommended: compute thresholds on **train only** per seed to avoid test leakage.
 
-Real data has correlated variables. Without regularization, coefficients can become unstable.
+### Implement
 
-Use **ElasticNet**:
+`popweight/trending.py`:
 
-\[
-\min*{\beta} \sum*{i=1}^n (Y_i - \hat{Y}\_i)^2 + \lambda\Big(\alpha \|\beta\|\_1 + (1-\alpha)\|\beta\|\_2^2\Big)
-\]
+- `compute_segment_thresholds(train_df, percentile) -> thresholds_df`
+- `apply_trending_label(df, thresholds_df) -> df_labeled`
 
-Where:
+### Inputs
 
-- \(\|\beta\|\_1\): L1 penalty → sparsity / feature selection
-- \(\|\beta\|\_2^2\): L2 penalty → stabilizes correlated coefficients
-- \(\lambda\): strength of regularization
-- \(\alpha\): mix of L1 and L2
+- `train_df` (for thresholds)
+- `test_scored_df` (to label)
 
-Regularization makes your learned weights reproducible and defensible.
+### Outputs
+
+- `test_labeled_df` with `Trending`
 
 ---
 
-## B6) Making weights dynamic (context-dependent coefficients)
+## 12) Trending Classifier Training (TASK)
 
-You want weights to change with context (e.g., Hour, Klout).  
-We do this with **interaction terms**.
+### Objective
 
-### Dynamic weights by Hour
+Train a classifier to predict `Trending`.
 
-Add:
+### Features (recommended)
 
-- \(L_i \times H_i\)
-- \(T_i \times H_i\)
+- `Score` (must)
+- `Platform`, `Post Type`
+- `Weekday Type`, `Time Periods`
+- `Age Group`
+- `Sentiment`
 
-Model:
+### Model options
 
-\[
-Y_i = \beta_0 + \beta_1 L_i + \beta_2 T_i + \gamma_1(L_i H_i) + \gamma_2(T_i H_i) + \dots
-\]
+- Primary: Gradient Boosting classifier (e.g., XGBoost if available; otherwise sklearn’s GradientBoostingClassifier)
 
-Then the effective weights become:
+### Implement
 
-\[
-w*{like}(H_i) = \beta_1 + \gamma_1 H_i
-\]
-\[
-w*{rt}(H_i) = \beta_2 + \gamma_2 H_i
-\]
+`popweight/models.py`:
 
-Meaning:
+- `train_trending_classifier(train_scored_labeled_df) -> model`
+- `predict_trending(model, test_scored_labeled_df) -> y_pred, y_prob`
 
-- at different hours, the same Like/Retweet can imply different popularity.
+Note:
 
-### Dynamic weights by Klout
+- For the classifier training data, you need to score and label the **train** set as well (not just test).
 
-Add:
+### Inputs
 
-- \(L_i \times K_i\)
-- \(T_i \times K_i\)
+- `train_df` -> (weights) -> `train_scored_df` -> (thresholds) -> `train_scored_labeled_df`
 
-Effective weights:
+### Outputs
 
-\[
-w*{like}(K_i) = \beta_1 + \delta_1 K_i
-\]
-\[
-w*{rt}(K_i) = \beta_2 + \delta_2 K_i
-\]
-
-Meaning:
-
-- likes/retweets may carry different meaning depending on author authority.
+- trained classifier model (optionally persisted)
+- predictions on test
 
 ---
 
-## B7) Simple text features (easy to compute and defend)
+## 13) Classification Evaluation (TASK)
 
-To keep things simple and understandable:
+### Objective
 
-- \(len_i\): length of text (characters/words)
-- \(hash_i\): number of hashtags
-- \(mention_i\): number of mentions
+Measure performance of trending prediction.
 
-You can add TF-IDF later, but these simple features are already defensible.
+### Metrics
 
----
+On test set per split:
 
-## B8) Evaluation of Stage B
+- Accuracy
+- Precision
+- Recall
+- F1-score
+- Confusion Matrix
 
-Use the same evaluation metrics (on \(Y\)):
+### Implement
 
-\[
-\text{MAE} = \frac{1}{n} \sum*i |Y_i - \hat{Y}\_i|
-\]
-\[
-\text{RMSE} = \sqrt{\frac{1}{n} \sum_i (Y_i - \hat{Y}\_i)^2}
-\]
-\[
-R^2 = 1 - \frac{\sum*{i}(Y*i - \hat{Y}\_i)^2}{\sum*{i}(Y_i - \bar{Y})^2}
-\]
+`popweight/evaluation.py`:
 
-Again: split by UserID groups.
+- `classification_metrics(y_true, y_pred) -> dict`
 
----
+### Inputs
 
-# Stage C — ISI-grade scientific checks (must-have)
+- `test_scored_labeled_df` with `Trending`
+- predicted `y_pred`
 
-## C1) Ablation study (prove exposure correction matters)
+### Outputs
 
-Compare two pipelines:
-
-1. **Naïve**: target \( \log(1+L+T) \) directly (no exposure correction)
-2. **Exposure-aware (ours)**: Stage A → \(\widehat{R}\), Stage B → \(Y\)
-
-You should observe:
-
-- better generalization (especially under UserID-group split)
-- more stable and interpretable coefficients
-
-This justifies your design decisions academically.
+- `classification_metrics` table rows per seed
 
 ---
 
-## C2) Coefficient stability via bootstrap (publishable rigor)
+## 14) Baseline Comparison (TASK — Required for Paper)
 
-To show weights are reliable:
+### Objective
 
-1. Resample users (UserID groups) with replacement
-2. Retrain Stage B each time
-3. Store \(\beta_1\) and \(\beta_2\)
-4. Report 95% confidence intervals
+Compare PopWeight against a fixed-weight baseline.
 
-\[
-CI*{95\%}(\beta_j) = [q*{0.025}(\beta*j^\*),\ q*{0.975}(\beta_j^\*)]
-\]
+### Baseline score
 
----
+- `Score_baseline = Likes_ll + Comments_ll + Shares_ll` (equal weights; no intercept)
 
-# End-to-end pipeline (what you will actually do)
+### Steps
 
-1. Preprocess data (types, missing values, encoding).
-2. **Stage A**: train exposure model:
-   - target: \(Z=\log(1+Reach)\)
-   - inputs: Klout, Hour, Weekday, Day, Lang, IsReshare, LocationID
-   - output: \(\widehat{R}=\exp(\hat{Z})-1\)
-3. Construct debiased popularity:
-   - \(Y = \log(1+Likes+Retweets) - \log(1+\widehat{R})\)
-4. **Stage B**: train ElasticNet to predict \(Y\) using Likes/Retweets + controls + text features.
-5. Add interactions to obtain **dynamic weights**.
-6. Evaluate with group split, ablation, and bootstrap stability.
+For each split:
+
+- Compute `Score_baseline` for train/test
+- Evaluate regression metrics vs `Reach_log`
+- Train the same classifier using `Score_baseline` instead of `Score`
+- Evaluate classification metrics
+
+### Outputs
+
+- Baseline metrics tables
+- Comparison summary table:
+  - `delta_accuracy`, `delta_f1`, etc.
 
 ---
 
-# What you will report in the paper
+## 15) Aggregation + Reporting (TASK)
 
-- Stage A (Reach estimation): MAE/RMSE/R² on log-Reach
-- Stage B (debiased popularity): MAE/RMSE/R² on \(Y\)
-- Learned static weights: \(\beta_1\) (Like), \(\beta_2\) (Retweet)
-- Dynamic weight functions: \(w*{like}(Hour)\), \(w*{rt}(Hour)\), \(w\_{like}(Klout)\), ...
-- Ablation results (naïve vs exposure-aware)
-- Bootstrap confidence intervals for key coefficients
+### Objective
+
+Aggregate metrics across repeats and produce final outputs.
+
+### Required outputs
+
+- Mean and standard deviation across seeds for:
+  - Regression metrics
+  - Classification metrics
+
+- Save:
+  - `outputs/metrics_regression.csv`
+  - `outputs/metrics_classification.csv`
+  - `outputs/weights.csv` (optionally averaged across seeds)
+
+### Optional plots
+
+- Predicted vs Actual (`Score` vs `Reach_log`)
+- Confusion matrix
+- Heatmap of `gamma` (Shares weight) by Platform × Post Type
+
+---
+
+## 16) Diagnostics (TASK)
+
+### Objective
+
+Detect common pipeline failures early.
+
+### Checks
+
+- Missing segments in train or test
+- Too-small segments
+- NaNs after transforms
+- Unexpected category values (e.g., trailing spaces)
+
+### Implement
+
+`popweight/diagnostics.py`:
+
+- `run_diagnostics(df_features, splits, weights_df) -> report`
+
+### Output
+
+- `outputs/diagnostics_report.json`
+
+---
+
+## 17) Orchestration via `main.py` (TASK)
+
+### Objective
+
+Provide a simple CLI menu or command-based runner.
+
+### Minimum commands
+
+1. `load` — read Excel and validate schema
+2. `clean` — clean core columns
+3. `features` — add transforms + segment key
+4. `split` — build repeated splits
+5. `fit_weights` — learn weights per segment per split
+6. `score` — compute Score on train/test
+7. `trend_label` — build trending labels
+8. `train_classifier` — train + evaluate classifier
+9. `baseline` — run baseline pipeline
+10. `report` — aggregate and export CSVs
+11. `diagnostics` — run diagnostics
+
+### Input
+
+- `data/social_media_engagement_data.xlsx`
+
+### Output
+
+- All outputs under `outputs/`
+
+---
+
+## Notes / Decisions (Must be Implemented)
+
+### A) Engagement Rate
+
+- Do not use it anywhere in training or evaluation.
+
+### B) Leakage Prevention
+
+- Trending thresholds must be computed using **train only** per split.
+
+### C) Small Segment Strategy
+
+Define and implement one strategy:
+
+- Global fallback weights (learn one model using all train data)
+- Platform-only fallback (learn weights per Platform)
+- Drop the segment (exclude from evaluation)
+
+This must be logged and consistent.
+
+### D) Reproducibility
+
+- All repeats must be controlled by explicit random seeds.
+- Store seeds and split sizes in SQLite.
+
+---
+
+## Acceptance Criteria
+
+Implementation is considered complete when:
+
+1. Running the pipeline produces `outputs/results.sqlite` with the required tables.
+2. `outputs/weights.csv` exists and contains (\alpha, \beta, \gamma) per `Platform × Post Type`.
+3. `outputs/metrics_regression.csv` and `outputs/metrics_classification.csv` exist and include per-seed metrics plus aggregated mean/std.
+4. Baseline results are produced and comparable to PopWeight.
+5. Diagnostics report is generated and indicates no fatal issues.
