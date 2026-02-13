@@ -1,8 +1,9 @@
-import pandas as pd
+from sklearn.metrics import r2_score
 
 from popweight.cleaning import clean_core_columns
 from popweight.config import (
     DATA_PATH,
+    MIN_SEGMENT_SAMPLES,
     RANDOM_SEEDS,
     SEGMENT_KEYS,
     SHEET_NAME,
@@ -13,6 +14,7 @@ from popweight.features import add_segment_key, add_transforms
 from popweight.io_excel import load_working_file
 from popweight.splits import make_splits
 from popweight.storage import init_db, write_df
+from popweight.weights import fit_segment_weights
 
 
 def main() -> None:
@@ -26,21 +28,34 @@ def main() -> None:
 
     splits = make_splits(df_features, RANDOM_SEEDS, TRAIN_RATIO)
     s0 = [s for s in splits if s.seed == 0][0]
-    print("train shape:", s0.train_df.shape)
-    print("test shape:", s0.test_df.shape)
-    print("total:", s0.train_df.shape[0] + s0.test_df.shape[0])
 
-    train_segs = set(s0.train_df["Segment"].unique())
-    test_segs = set(s0.test_df["Segment"].unique())
-    print("segments train:", len(train_segs))
-    print("segments test:", len(test_segs))
-    print("test minus train:", test_segs - train_segs)
+    w0 = fit_segment_weights(
+        s0.train_df,
+        seed=s0.seed,
+        min_segment_samples=MIN_SEGMENT_SAMPLES,
+    )
+    print(w0.shape)
+    print(w0[["Segment", "n_train", "strategy"]].head())
+    print("unique segments:", w0["Segment"].nunique())
+    print("strategy counts:\n", w0["strategy"].value_counts())
+    print(w0[["alpha", "beta", "gamma", "intercept", "r2_train"]].describe())
+    print(
+        "Any NaN:",
+        w0[["alpha", "beta", "gamma", "intercept", "r2_train"]].isna().any().to_dict(),
+    )
 
-    train_dist = s0.train_df["Segment"].value_counts(normalize=True).sort_index()
-    test_dist = s0.test_df["Segment"].value_counts(normalize=True).sort_index()
-    dist_diff = (train_dist - test_dist).abs()
-    print("max abs diff:", dist_diff.max())
-    print(pd.concat([train_dist, test_dist, dist_diff], axis=1).head(12))
+    seg = "Instagram__Video"
+    seg_df = s0.train_df[s0.train_df["Segment"] == seg].copy()
+    row = w0[w0["Segment"] == seg].iloc[0]
+    y_true = seg_df["Reach_log"]
+    y_pred = (
+        row["intercept"]
+        + row["alpha"] * seg_df["Likes_ll"]
+        + row["beta"] * seg_df["Comments_ll"]
+        + row["gamma"] * seg_df["Shares_ll"]
+    )
+    print("manual r2:", r2_score(y_true, y_pred))
+    print("stored r2:", row["r2_train"])
 
 
 if __name__ == "__main__":

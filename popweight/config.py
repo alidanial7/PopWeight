@@ -17,3 +17,4 @@ USE_DOUBLE_LOG = True
 
 # Segment definition
 SEGMENT_KEYS = ["Platform", "Post Type"]
+MIN_SEGMENT_SAMPLES = 20
