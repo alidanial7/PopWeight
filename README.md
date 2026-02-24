@@ -12,7 +12,7 @@ The Excel file contains at least these sheets:
 
 The goal is to:
 
-1. **Learn platform- and post-type-specific interaction weights** (\alpha, \beta, \gamma) such that engagement interactions predict **Reach**.
+1. **Learn platform- and post-type-specific interaction weights** (\alpha, \beta, \gamma) such that engagement interactions predict **log(ER_proxy)** where ER_proxy = (Likes+Comments+Shares)/Reach.
 2. Use the learned weights to compute an **Engagement Score** and build a **Trending classifier** (binary) where trending is defined by **engagement rate proxy (ER_proxy) percentile within each segment**.
 
 > IMPORTANT: **Do not use `Engagement Rate`** in training or validation. It is derived from Reach and interaction counts and may cause leakage.
@@ -39,8 +39,11 @@ project/
     trending.py
     models.py
     evaluation.py
+    reporting.py
     storage.py
     diagnostics.py
+  tests/
+    test_trending.py
   outputs/
     (generated artifacts)
   logs/
@@ -82,6 +85,7 @@ Create `popweight/config.py` with:
 
 - Segment definition:
   - `SEGMENT_KEYS = ["Platform", "Post Type"]`
+  - `MIN_SEGMENT_SAMPLES = 20`
 
 ### Inputs
 
@@ -299,49 +303,46 @@ Create repeated train/test splits while ensuring segments are present.
 
 ### Objective
 
-Learn (\alpha, \beta, \gamma) per segment to predict `Reach_log`.
+Learn (\alpha, \beta, \gamma) per segment to predict `log(ER_proxy)` (aligned with Trending).
 
 ### Model
 
-- Linear Regression per segment:
-  - X = [`Likes_ll`, `Comments_ll`, `Shares_ll`]
-  - y = `Reach_log`
+- `Eng = Likes + Comments + Shares`
+- `ER_proxy = Eng / Reach` (safe division: Reach.clip(lower=1), ER_proxy.clip(lower=1e-10))
+- y = `log(ER_proxy)`
+- X = [`Likes_ll`, `Comments_ll`, `Shares_ll`]
 
 - Store `alpha`, `beta`, `gamma`, and `intercept`.
 - Also store regression training diagnostics per segment:
   - `n_train_rows`
-  - `r2_train` (optional)
+  - `r2_train` against log(ER_proxy)
 
 ### Implement
 
 `popweight/weights.py`:
 
-- `fit_segment_weights(train_df) -> weights_df`
+- `fit_segment_weights(train_df, seed=None, min_segment_samples=20) -> weights_df`
   - Iterate over segments
-  - Handle small segments:
-    - If a segment has < `MIN_SEGMENT_SAMPLES` (define, e.g., 20), either:
-      - skip and mark as insufficient
-      - or fall back to platform-only weights
-      - or fall back to global weights
-
-    - Must be deterministic and logged.
+  - Handle small segments: if a segment has < `MIN_SEGMENT_SAMPLES`,
+    fall back to **global weights** (one model on all train data)
+  - Must be deterministic and logged
 
 ### Inputs
 
-- `train_df` from a split
+- `train_df` from a split (with Segment, Likes_ll, Comments_ll, Shares_ll, Likes, Comments, Shares, Reach)
 
 ### Outputs
 
 - `weights_df` with columns:
-  - `seed`, `Platform`, `Post Type`, `Segment`, `alpha`, `beta`, `gamma`, `intercept`, `n_train`
+  - `seed`, `Platform`, `Post Type`, `Segment`, `alpha`, `beta`, `gamma`, `intercept`, `n_train`, `r2_train`, `strategy`
 
 ---
 
-## 9) Scoring: Predict `Reach_log` via Engagement Score (TASK)
+## 9) Scoring: Predict `log(ER_proxy)` via Engagement Score (TASK)
 
 ### Objective
 
-Compute predicted reach signal per row using learned weights.
+Compute predicted engagement-rate-proxy signal per row using learned weights.
 
 ### Formula
 
@@ -351,7 +352,7 @@ For each row in train/test within a segment:
 
 Interpretation:
 
-- `Score` is the model’s prediction of `Reach_log`.
+- `Score` is the model’s prediction of `log(ER_proxy)`.
 
 ### Implement
 
@@ -376,7 +377,7 @@ Interpretation:
 
 ### Objective
 
-Evaluate how well the Score predicts `Reach_log`.
+Evaluate how well the Score predicts `log(ER_proxy)`.
 
 ### Metrics
 
@@ -392,11 +393,11 @@ Compute on test set per split:
 `popweight/evaluation.py`:
 
 - `regression_metrics(y_true, y_pred) -> dict`
-- `evaluate_regression(test_scored_df) -> metrics_row`
+- `evaluate_regression(test_scored_df) -> metrics_row` (computes log(ER_proxy) from Likes, Comments, Shares, Reach)
 
 ### Inputs
 
-- `test_scored_df` with `Reach_log` and `Score`
+- `test_scored_df` with Likes, Comments, Shares, Reach and Score
 
 ### Outputs
 
@@ -413,7 +414,7 @@ Create a binary label `Trending` based on **engagement rate proxy (ER_proxy)**, 
 ### Definition
 
 - `Eng = Likes + Comments + Shares`
-- `ER_proxy = Eng / Reach` (safe division; Reach=0 rows removed in cleaning)
+- `ER_proxy = Eng / Reach` (safe division: Reach.clip(lower=1e-10); rows with Reach less than MIN_REACH removed in cleaning)
 
 Within each segment, compute threshold on **train only** per seed:
 
@@ -451,9 +452,10 @@ For rows whose segment has no threshold (e.g., unseen segment in test), use the 
 
 Train a classifier to predict `Trending`.
 
-### Features (recommended)
+### Features
 
 - `Score` (must)
+- `Eng_log = log(Likes + Comments + Shares + 1)` (computed inside models)
 - `Platform`, `Post Type`
 - `Weekday Type`, `Time Periods`
 - `Age Group`
@@ -461,18 +463,27 @@ Train a classifier to predict `Trending`.
 
 ### Model options
 
-- Primary: Gradient Boosting classifier (e.g., XGBoost if available; otherwise sklearn’s GradientBoostingClassifier)
+- Primary: Gradient Boosting classifier (sklearn GradientBoostingClassifier)
+
+### Threshold selection (leakage prevention)
+
+- Split training set into train_sub (80%) and val_sub (20%) stratified by Trending
+- Fit classifier on train_sub only
+- Choose probability threshold that maximizes F1 on val_sub (scan 0.01 to 0.99)
+- Apply that fixed threshold to test set
+- Do not select threshold on the same data used to fit the classifier
 
 ### Implement
 
 `popweight/models.py`:
 
-- `train_trending_classifier(train_scored_labeled_df) -> model`
-- `predict_trending(model, test_scored_labeled_df) -> y_pred, y_prob`
+- `train_trending_classifier(train_scored_labeled_df, val_ratio=0.2) -> (model, threshold)`
+- `predict_trending(model, test_scored_labeled_df, threshold) -> y_pred, y_prob, threshold`
 
 Note:
 
 - For the classifier training data, you need to score and label the **train** set as well (not just test).
+- DataFrame must have Likes, Comments, Shares for Eng_log computation.
 
 ### Inputs
 
@@ -480,8 +491,8 @@ Note:
 
 ### Outputs
 
-- trained classifier model (optionally persisted)
-- predictions on test
+- trained classifier model and chosen threshold
+- predictions on test using the fixed threshold
 
 ---
 
@@ -533,7 +544,7 @@ Compare PopWeight against a fixed-weight baseline.
 For each split:
 
 - Compute `Score_baseline` for train/test
-- Evaluate regression metrics vs `Reach_log`
+- Evaluate regression metrics vs `log(ER_proxy)` (same target as PopWeight)
 - Train the same classifier using `Score_baseline` instead of `Score`
 - Evaluate classification metrics
 
@@ -551,6 +562,15 @@ For each split:
 
 Aggregate metrics across repeats and produce final outputs.
 
+### Implement
+
+`popweight/reporting.py`:
+
+- `aggregate_regression_metrics(metrics_list) -> regression_df`
+- `aggregate_classification_metrics(metrics_list) -> classification_df`
+- `aggregate_weights(weights_list) -> weights_df`
+- `save_reports(regression_df, classification_df, weights_df, output_dir) -> None`
+
 ### Required outputs
 
 - Mean and standard deviation across seeds for:
@@ -564,7 +584,7 @@ Aggregate metrics across repeats and produce final outputs.
 
 ### Optional plots
 
-- Predicted vs Actual (`Score` vs `Reach_log`)
+- Predicted vs Actual (`Score` vs `log(ER_proxy)`)
 - Confusion matrix
 - Heatmap of `gamma` (Shares weight) by Platform × Post Type
 
@@ -633,17 +653,12 @@ Provide a simple CLI menu or command-based runner.
 
 ### B) Leakage Prevention
 
-- Trending thresholds must be computed using **train only** per split.
+- Trending thresholds (ER_proxy per segment) must be computed using **train only** per split.
+- Classifier probability threshold must be chosen on a **validation split** (stratified 80/20), not on the training data used to fit the classifier.
 
 ### C) Small Segment Strategy
 
-Define and implement one strategy:
-
-- Global fallback weights (learn one model using all train data)
-- Platform-only fallback (learn weights per Platform)
-- Drop the segment (exclude from evaluation)
-
-This must be logged and consistent.
+**Implemented**: Global fallback weights. When a segment has fewer than MIN_SEGMENT_SAMPLES rows, use weights learned from all train data.
 
 ### D) Reproducibility
 

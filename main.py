@@ -124,11 +124,9 @@ def cmd_train_classifier() -> None:
     te_lab = apply_trending_label(s0.test_df, thr)
     train_for_clf = tr_lab.assign(Score=train_sc["Score"])
     test_for_clf = te_lab.assign(Score=test_sc["Score"])
-    mdl = train_trending_classifier(train_for_clf)
-    yp, _, chosen_thr = predict_trending(
-        mdl, test_for_clf, train_scored_labeled_df=train_for_clf
-    )
+    mdl, chosen_thr = train_trending_classifier(train_for_clf)
     print("train_classifier: chosen threshold =", chosen_thr)
+    yp, _, _ = predict_trending(mdl, test_for_clf, threshold=chosen_thr)
     m = classification_metrics(te_lab["Trending"].to_numpy(), yp)
     print("train_classifier: ok", m)
 
@@ -161,10 +159,8 @@ def cmd_report() -> None:
         te_lab = apply_trending_label(split.test_df, thr)
         train_for_clf = tr_lab.assign(Score=train_sc["Score"])
         test_for_clf = te_lab.assign(Score=test_sc["Score"])
-        mdl = train_trending_classifier(train_for_clf)
-        yp, _, _ = predict_trending(
-            mdl, test_for_clf, train_scored_labeled_df=train_for_clf
-        )
+        mdl, chosen_thr = train_trending_classifier(train_for_clf)
+        yp, _, _ = predict_trending(mdl, test_for_clf, threshold=chosen_thr)
         reg_list.append(evaluate_regression(test_sc, seed=split.seed))
         cls = classification_metrics(te_lab["Trending"].to_numpy(), yp)
         cls["seed"] = split.seed

@@ -2,10 +2,7 @@
 
 from typing import Any
 
-from popweight.evaluation import (
-    classification_metrics,
-    evaluate_regression,
-)
+from popweight.evaluation import classification_metrics, evaluate_regression
 from popweight.models import predict_trending, train_trending_classifier
 from popweight.scoring import apply_baseline_scores
 from popweight.splits import Split
@@ -44,11 +41,11 @@ def run_baseline_evaluation(
     )
     train_for_clf = train_labeled.assign(Score=train_baseline["Score_baseline"])
     test_for_clf = test_labeled.assign(Score=test_baseline["Score_baseline"])
-    model = train_trending_classifier(train_for_clf)
+    model, chosen_thr = train_trending_classifier(train_for_clf)
     y_pred, _, _ = predict_trending(
         model,
         test_for_clf,
-        train_scored_labeled_df=train_for_clf,
+        threshold=chosen_thr,
     )
     cls = classification_metrics(
         test_labeled["Trending"].to_numpy(),

@@ -55,17 +55,20 @@ def _fit_segment(
         + intercept
     )  # noqa: E501
     r2 = float(r2_score(y, y_pred)) if len(y) > 1 else 0.0
-    return pd.Series(
-        {
-            "alpha": alpha,
-            "beta": beta,
-            "gamma": gamma,
-            "intercept": intercept,
-            "n_train": n,
-            "r2_train": r2,
-            "strategy": "segment",
-        }
-    ), "segment"
+    return (
+        pd.Series(
+            {
+                "alpha": alpha,
+                "beta": beta,
+                "gamma": gamma,
+                "intercept": intercept,
+                "n_train": n,
+                "r2_train": r2,
+                "strategy": "segment",
+            }
+        ),
+        "segment",
+    )
 
 
 def fit_segment_weights(
