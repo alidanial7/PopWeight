@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-REACH_EPS = 1e-10
+REACH_EPS = 1  # Matches MIN_REACH; cleaning drops rows with Reach < 1
 
 
 def _add_er_proxy(df: pd.DataFrame) -> pd.DataFrame:
