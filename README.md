@@ -44,6 +44,7 @@ This document explains the entire project in detail. You can understand what the
 ### Output Artifacts
 
 - `outputs/results.sqlite` — SQLite database with all intermediate tables
+- **[RESULTS.md](RESULTS.md)** — Evaluation tables, pseudocode summary, data flow diagram
 - `outputs/metrics_regression.csv` — R², MAE, RMSE, Pearson per seed
 - `outputs/metrics_classification.csv` — Accuracy, Precision, Recall, F1 per seed
 - `outputs/weights.csv` — Learned (α, β, γ, intercept) per segment per seed
